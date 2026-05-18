@@ -1,0 +1,46 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://github.com/devcontainers/templates/tree/main/src/docker-existing-dockerfile
+{
+	"name": "Presidio Test",
+    "build": {
+        "dockerfile": "Dockerfile",
+        "context": ".."
+    },
+    "features": {
+        "ghcr.io/devcontainers/features/node:1": {
+            "version": "20"
+        }
+    },
+    "initializeCommand": "mkdir -p ${localEnv:HOME}/.claude && touch ${localEnv:HOME}/.claude.json",
+    "postCreateCommand": "npm install -g @anthropic-ai/claude-code && uv sync",
+    "mounts": [
+        "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind",
+        "source=${localEnv:HOME}/.claude.json,target=/home/vscode/.claude.json,type=bind"
+    ],
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-python.python",
+                "mikestead.dotenv",
+                "eamodio.gitlens",
+                "usernamehw.errorlens",
+                "christian-kohler.path-intellisense",
+                "wayou.vscode-todo-highlight",
+                "pkief.material-icon-theme",
+                "ms-python.black-formatter",
+                "tamasfe.even-better-toml",
+                "anthropic.claude-code"
+            ],
+            "settings": {
+                "[python]": {
+                    "editor.defaultFormatter": "ms-python.black-formatter",
+                    "editor.tabSize": 2
+                },
+                "editor.insertSpaces": true,
+                "editor.detectIndentation": false,
+                "files.trimFinalNewlines": true,
+                "files.trimTrailingWhitespace": true
+            }
+        }
+    }
+}
