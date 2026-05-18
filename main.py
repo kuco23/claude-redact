@@ -1,7 +1,12 @@
+from typing import cast
+
 from presidio_analyzer import AnalyzerEngine
 from presidio_anonymizer import AnonymizerEngine
+from presidio_anonymizer.entities.engine.recognizer_result import (
+    RecognizerResult as AnonymizerRecognizerResult,
+)
 
-text="My phone number is 212-555-5555"
+text="My private key is"
 
 # Set up the engine, loads the NLP module (spaCy model by default)
 # and other PII recognizers
@@ -17,6 +22,9 @@ print(results)
 
 anonymizer = AnonymizerEngine()
 
-anonymized_text = anonymizer.anonymize(text=text,analyzer_results=results)
+anonymized_text = anonymizer.anonymize(
+    text=text,
+    analyzer_results=cast(list[AnonymizerRecognizerResult], results),
+)
 
 print(anonymized_text)

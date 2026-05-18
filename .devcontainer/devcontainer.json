@@ -32,6 +32,7 @@
                 "anthropic.claude-code"
             ],
             "settings": {
+                "python.defaultInterpreterPath": "/home/vscode/.venv/bin/python",
                 "[python]": {
                     "editor.defaultFormatter": "ms-python.black-formatter",
                     "editor.tabSize": 2
