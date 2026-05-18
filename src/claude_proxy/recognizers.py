@@ -64,8 +64,14 @@ CUSTOM_PATTERNS: list[tuple[str, str, float]] = [
     # Dogecoin: P2PKH starts with D, 34 chars total.
     ("DOGE_ADDRESS", r"\bD[1-9A-HJ-NP-Za-km-z]{33}\b", 0.75),
 
-    # Ripple (XRP): starts with r, base58, 25-35 chars.
-    ("XRP_ADDRESS", r"\br[1-9A-HJ-NP-Za-km-z]{24,34}\b", 0.65),
+    # Ripple (XRP): starts with `r` (strict lowercase via inline (?-i)), base58,
+    # 25-35 chars, and must contain at least one digit. The digit requirement
+    # rules out camelCase identifiers like `redeemedAggregateTimeSeries` that
+    # happen to fit the length+alphabet — real XRP addresses have a base58
+    # checksum that virtually always includes digits.
+    ("XRP_ADDRESS",
+     r"\b(?-i:r)(?=[1-9A-HJ-NP-Za-km-z]*[0-9])[1-9A-HJ-NP-Za-km-z]{24,34}\b",
+     0.85),
 
     # Tron (TRX): starts with T, 34 chars total.
     ("TRX_ADDRESS", r"\bT[1-9A-HJ-NP-Za-km-z]{33}\b", 0.75),
