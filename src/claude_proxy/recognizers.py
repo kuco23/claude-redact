@@ -20,8 +20,8 @@ ENTITY_TYPES = [
     "UUID", "JWT", "API_KEY", "CRYPTO_PRIVATE_KEY", "HASH",
     "ETH_ADDRESS", "BTC_ADDRESS", "LTC_ADDRESS", "DOGE_ADDRESS",
     "XRP_ADDRESS", "TRX_ADDRESS", "XMR_ADDRESS", "ADA_ADDRESS", "BCH_ADDRESS",
-    # Emitted by detect-secrets entropy detectors
-    "BASE64_SECRET", "HEX_SECRET", "HIGH_ENTROPY_SECRET",
+    # Emitted by the entropy scanner in detection.py
+    "BASE64_SECRET", "HEX_SECRET",
 ]
 
 CUSTOM_PATTERNS: list[tuple[str, str, float]] = [

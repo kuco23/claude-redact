@@ -19,9 +19,11 @@ Detection runs in two passes:
    JWTs, PEM private keys, hex hashes, EVM/BTC/LTC/DOGE/XRP/TRX/XMR/ADA/BCH
    addresses, and provider-prefixed API keys (Anthropic, OpenAI, Stripe,
    GitHub classic + fine-grained, GitLab, AWS, Google, Slack).
-2. **`detect-secrets`** entropy detectors (`Base64HighEntropyString`,
-   `HexHighEntropyString`) run on the already-masked text to catch opaque
-   tokens that don't fit any known prefix.
+2. A small **entropy scanner** runs on the already-masked text: regex-extract
+   base64- or hex-shaped runs of 20+ chars, then Shannon-entropy filter at
+   4.5 / 3.0 bits per char. Catches opaque tokens that don't fit any known
+   prefix; rejects ordinary English. (`detect-secrets` was tried first but
+   its high-entropy plugins only fire on quoted source-code literals.)
 
 Each detected range is replaced with `<<MASK:ENTITY_TYPE:<sha10>>>`, a
 deterministic placeholder keyed off the original value — so the same secret
@@ -95,10 +97,11 @@ Dependency direction is linear:
 type are auto-folded into one `PatternRecognizer`. Add the entity to
 `ENTITY_TYPES` in the same file so Presidio surfaces it.
 
-**Enable more `detect-secrets` plugins.** Edit `DS_PLUGINS` in
-[detection.py](src/claude_proxy/detection.py). Provider-specific detectors
-(AWS, GitHub, Slack, …) are intentionally disabled to avoid duplicating the
-regex layer; enable them if you want belt-and-braces coverage.
+**Tune the entropy scanner.** Edit `BASE64_ENTROPY_LIMIT` / `HEX_ENTROPY_LIMIT`
+/ `ENTROPY_MIN_LEN` in [detection.py](src/claude_proxy/detection.py). Raise the
+limits if legitimate base64 (image data, signed URLs, CSP nonces) is being
+masked; lower them to catch shorter / lower-entropy tokens at the cost of
+more false positives.
 
 **Target a different upstream API.** Replace [content.py](src/claude_proxy/content.py)
 — it's the only module that knows about Anthropic's message shape — and

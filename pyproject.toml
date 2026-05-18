@@ -10,7 +10,6 @@ dependencies = [
     "fastapi>=0.115",
     "httpx>=0.27",
     "uvicorn>=0.30",
-    "detect-secrets>=1.5",
 ]
 
 [build-system]

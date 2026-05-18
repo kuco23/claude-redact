@@ -22,7 +22,7 @@ from claude_proxy.detection import Match
 
 logger = logging.getLogger(__name__)
 
-PLACEHOLDER_RE = re.compile(r"<<MASK:[A-Z_]+:[0-9a-f]{10}>>")
+PLACEHOLDER_RE = re.compile(r"<<MASK:[A-Z0-9_]+:[0-9a-f]{10}>>")
 MAX_PLACEHOLDER_LEN = 64
 
 _forward: dict[str, str] = {}
@@ -90,10 +90,10 @@ def mask(text: str) -> str:
         if not _overlaps_any(m, masked_ranges)
     ]
     if secrets:
-        logger.info("detect-secrets matched %s", dict(Counter(m.entity_type for m in secrets)))
+        logger.info("entropy scanner matched %s", dict(Counter(m.entity_type for m in secrets)))
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
-                "detect-secrets details: %s",
+                "entropy details: %s",
                 [(m.entity_type, _short(text[m.start : m.end])) for m in secrets],
             )
     return splice(text, secrets)
