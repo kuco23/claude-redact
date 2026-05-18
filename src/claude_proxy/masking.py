@@ -13,10 +13,14 @@ the conversation. For multi-tenant deployments, swap these for a keyed store.
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
+from collections import Counter
 
 from claude_proxy import detection
 from claude_proxy.detection import Match
+
+logger = logging.getLogger(__name__)
 
 PLACEHOLDER_RE = re.compile(r"<<MASK:[A-Z_]+:[0-9a-f]{10}>>")
 MAX_PLACEHOLDER_LEN = 64
@@ -39,12 +43,26 @@ def placeholder_for(entity_type: str, value: str) -> str:
 
 def splice(text: str, matches: list[Match]) -> str:
     """Replace each match's range with its placeholder. Processes right-to-left
-    so earlier offsets stay valid as the string shortens/grows."""
+    so earlier offsets stay valid as the string shortens/grows. Overlapping
+    matches are deduped (earliest, longest wins) — splicing two overlapping
+    ranges corrupts the output."""
     out = text
-    for m in sorted(matches, key=lambda m: m.start, reverse=True):
+    for m in sorted(_dedupe_overlaps(matches), key=lambda m: m.start, reverse=True):
         ph = placeholder_for(m.entity_type, out[m.start : m.end])
         out = out[: m.start] + ph + out[m.end :]
     return out
+
+
+def _dedupe_overlaps(matches: list[Match]) -> list[Match]:
+    if not matches:
+        return matches
+    # Sort by start asc; for ties, longer match first so it wins.
+    ordered = sorted(matches, key=lambda m: (m.start, -(m.end - m.start)))
+    kept: list[Match] = [ordered[0]]
+    for m in ordered[1:]:
+        if m.start >= kept[-1].end:
+            kept.append(m)
+    return kept
 
 
 def mask(text: str) -> str:
@@ -56,13 +74,28 @@ def mask(text: str) -> str:
     """
     if not text:
         return text
-    text = splice(text, detection.find_entities(text))
+    entities = detection.find_entities(text)
+    if entities:
+        logger.info("presidio matched %s", dict(Counter(m.entity_type for m in entities)))
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "presidio details: %s",
+                [(m.entity_type, _short(text[m.start : m.end])) for m in entities],
+            )
+    text = splice(text, entities)
     masked_ranges = [(m.start(), m.end()) for m in PLACEHOLDER_RE.finditer(text)]
     secrets = [
         m
         for m in detection.find_high_entropy(text)
         if not _overlaps_any(m, masked_ranges)
     ]
+    if secrets:
+        logger.info("detect-secrets matched %s", dict(Counter(m.entity_type for m in secrets)))
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "detect-secrets details: %s",
+                [(m.entity_type, _short(text[m.start : m.end])) for m in secrets],
+            )
     return splice(text, secrets)
 
 
@@ -76,3 +109,7 @@ def unmask(text: str) -> str:
 
 def _overlaps_any(m: Match, ranges: list[tuple[int, int]]) -> bool:
     return any(m.start < end and m.end > start for start, end in ranges)
+
+
+def _short(s: str, n: int = 40) -> str:
+    return s if len(s) <= n else s[:n] + "…"
