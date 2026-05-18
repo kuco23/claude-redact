@@ -77,8 +77,7 @@ cp .env.template .env
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `CLAUDE_PROXY_LOG_LEVEL` | `INFO` | `DEBUG` to dump bodies + headers |
-| `CLAUDE_PROXY_LOG_BODY_LIMIT` | `8000` | Max chars per body log; `0` = no cap |
+| `CLAUDE_PROXY_LOG_LEVEL` | `INFO` | `DEBUG` to log headers + every placeholder ↔ value pair |
 | `CLAUDE_PROXY_HOST` | `127.0.0.1` | Bind address for `python -m claude_proxy` |
 | `CLAUDE_PROXY_PORT` | `8888` | Bind port for `python -m claude_proxy` |
 | `CLAUDE_PROXY_UPSTREAM` | `https://api.anthropic.com` | Where to forward |

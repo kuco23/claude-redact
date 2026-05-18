@@ -30,7 +30,9 @@ _reverse: dict[str, str] = {}
 
 
 def placeholder_for(entity_type: str, value: str) -> str:
-    """Return a stable placeholder for `value`, creating one on first use."""
+    """Return a stable placeholder for `value`, creating one on first use.
+    Logs each newly-minted mapping at DEBUG so you can see what got masked
+    without having to dump the entire request body."""
     cached = _forward.get(value)
     if cached is not None:
         return cached
@@ -38,6 +40,7 @@ def placeholder_for(entity_type: str, value: str) -> str:
     ph = f"<<MASK:{entity_type}:{digest}>>"
     _forward[value] = ph
     _reverse[ph] = value
+    logger.debug("masked %s: %r -> %s", entity_type, _short(value), ph)
     return ph
 
 
@@ -77,11 +80,6 @@ def mask(text: str) -> str:
     entities = detection.find_entities(text)
     if entities:
         logger.info("presidio matched %s", dict(Counter(m.entity_type for m in entities)))
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "presidio details: %s",
-                [(m.entity_type, _short(text[m.start : m.end])) for m in entities],
-            )
     text = splice(text, entities)
     masked_ranges = [(m.start(), m.end()) for m in PLACEHOLDER_RE.finditer(text)]
     secrets = [
@@ -91,20 +89,27 @@ def mask(text: str) -> str:
     ]
     if secrets:
         logger.info("entropy scanner matched %s", dict(Counter(m.entity_type for m in secrets)))
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "entropy details: %s",
-                [(m.entity_type, _short(text[m.start : m.end])) for m in secrets],
-            )
     return splice(text, secrets)
 
 
 def unmask(text: str) -> str:
     """Restore every placeholder to its original value. Unknown placeholders
-    are left untouched (they're harmless and may belong to another process)."""
+    are left untouched (they're harmless and may belong to another process).
+    Each restoration is logged at DEBUG."""
     if not text or "<<MASK:" not in text:
         return text
-    return PLACEHOLDER_RE.sub(lambda m: _reverse.get(m.group(0), m.group(0)), text)
+    debug = logger.isEnabledFor(logging.DEBUG)
+
+    def _sub(m: re.Match[str]) -> str:
+        ph = m.group(0)
+        original = _reverse.get(ph)
+        if original is None:
+            return ph
+        if debug:
+            logger.debug("unmasked %s -> %r", ph, _short(original))
+        return original
+
+    return PLACEHOLDER_RE.sub(_sub, text)
 
 
 def _overlaps_any(m: Match, ranges: list[tuple[int, int]]) -> bool:

@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any
 
 import httpx
 from fastapi import FastAPI, Request
@@ -29,9 +28,6 @@ UPSTREAM = os.environ.get("CLAUDE_PROXY_UPSTREAM", "https://api.anthropic.com")
 _LOG_REDACT_HEADERS = {
     "x-api-key", "anthropic-api-key", "authorization", "cookie", "set-cookie",
 }
-
-# Cap for body dumps at DEBUG level. Override via env if you need more.
-_BODY_LOG_LIMIT = int(os.environ.get("CLAUDE_PROXY_LOG_BODY_LIMIT", "8000"))
 
 # Outbound: httpx recomputes Host/Content-Length itself; Accept-Encoding is
 # dropped so we always get plaintext bodies back rather than gzip.
@@ -56,13 +52,6 @@ def _redact_headers(h: dict[str, str]) -> dict[str, str]:
     return out
 
 
-def _truncate(obj: Any, limit: int = _BODY_LOG_LIMIT) -> str:
-    s = obj if isinstance(obj, str) else json.dumps(obj, default=str)
-    if limit <= 0 or len(s) <= limit:
-        return s
-    return f"{s[:limit]}…(+{len(s) - limit} chars)"
-
-
 app = FastAPI()
 client = httpx.AsyncClient(base_url=UPSTREAM, timeout=httpx.Timeout(600.0, connect=10.0))
 
@@ -76,14 +65,12 @@ async def messages(request: Request) -> Response:
     inbound_headers = dict(request.headers)
     logger.info("POST /v1/messages stream=%s body=%dB", is_stream, len(raw))
     logger.debug("inbound headers: %s", _redact_headers(inbound_headers))
-    logger.debug("request body pre-mask: %s", _truncate(body))
 
-    mask_request(body)
-    logger.debug("request body post-mask: %s", _truncate(body))
+    mask_request(body)  # masking module logs each placeholder mapping at DEBUG
 
     masked_bytes = json.dumps(body).encode()
     headers = _filter_headers(inbound_headers, _DROP_REQ_HEADERS)
-    logger.debug("forwarding headers: %s", _redact_headers(headers))
+    logger.debug("forwarding %dB to upstream", len(masked_bytes))
     upstream_req = client.build_request(
         "POST", "/v1/messages", headers=headers, content=masked_bytes
     )
@@ -110,9 +97,7 @@ async def messages(request: Request) -> Response:
 
     if upstream.headers.get("content-type", "").startswith("application/json"):
         data = upstream.json()
-        logger.debug("response body pre-unmask: %s", _truncate(data))
-        unmask_response(data)
-        logger.debug("response body post-unmask: %s", _truncate(data))
+        unmask_response(data)  # masking.unmask logs each restoration at DEBUG
         return Response(
             content=json.dumps(data),
             status_code=upstream.status_code,
