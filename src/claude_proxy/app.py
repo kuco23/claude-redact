@@ -23,7 +23,7 @@ from claude_proxy.streaming import transform_sse
 
 logger = logging.getLogger(__name__)
 
-UPSTREAM = "https://api.anthropic.com"
+UPSTREAM = os.environ.get("CLAUDE_PROXY_UPSTREAM", "https://api.anthropic.com")
 
 # Headers whose values get redacted in logs. Names are matched case-insensitively.
 _LOG_REDACT_HEADERS = {
@@ -58,7 +58,9 @@ def _redact_headers(h: dict[str, str]) -> dict[str, str]:
 
 def _truncate(obj: Any, limit: int = _BODY_LOG_LIMIT) -> str:
     s = obj if isinstance(obj, str) else json.dumps(obj, default=str)
-    return s if len(s) <= limit else f"{s[:limit]}…(+{len(s) - limit} chars)"
+    if limit <= 0 or len(s) <= limit:
+        return s
+    return f"{s[:limit]}…(+{len(s) - limit} chars)"
 
 
 app = FastAPI()

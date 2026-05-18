@@ -65,6 +65,24 @@ from anthropic import Anthropic
 client = Anthropic(base_url="http://127.0.0.1:8888")
 ```
 
+## Configuration
+
+Settings come from environment variables; `.env` at the project root is
+loaded automatically at startup. Copy [.env.template](.env.template) and
+edit:
+
+```bash
+cp .env.template .env
+```
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `CLAUDE_PROXY_LOG_LEVEL` | `INFO` | `DEBUG` to dump bodies + headers |
+| `CLAUDE_PROXY_LOG_BODY_LIMIT` | `8000` | Max chars per body log; `0` = no cap |
+| `CLAUDE_PROXY_HOST` | `127.0.0.1` | Bind address for `python -m claude_proxy` |
+| `CLAUDE_PROXY_PORT` | `8888` | Bind port for `python -m claude_proxy` |
+| `CLAUDE_PROXY_UPSTREAM` | `https://api.anthropic.com` | Where to forward |
+
 Quick offline sanity check (no API key, no network):
 
 ```bash
