@@ -94,7 +94,35 @@ CUSTOM_PATTERNS: list[tuple[str, str, float]] = [
      0.97),                                                          # runner, trigger, etc.)
     ("API_KEY", r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b", 0.95),            # AWS access key id
     ("API_KEY", r"\bAIza[0-9A-Za-z_\-]{35}\b", 0.95),               # Google API key
-    ("API_KEY", r"\bxox[baprs]-[A-Za-z0-9\-]{10,}\b", 0.90),        # Slack
+    ("API_KEY", r"\bxox[baprs]-[A-Za-z0-9\-]{10,}\b", 0.90),        # Slack token
+
+    # Patterns adapted from gitleaks (github.com/gitleaks/gitleaks) — covering
+    # the SaaS providers most likely to show up in dev traffic.
+    ("API_KEY", r"\bAC[a-f0-9]{32}\b", 0.95),                                              # Twilio Account SID
+    ("API_KEY", r"\bSG\.[A-Za-z0-9_\-]{22}\.[A-Za-z0-9_\-]{43}\b", 0.99),                  # SendGrid
+    ("API_KEY", r"\bkey-[a-f0-9]{32}\b", 0.90),                                            # Mailgun private API key
+    ("API_KEY", r"\b[a-f0-9]{32}-us\d{1,2}\b", 0.95),                                      # Mailchimp API key
+    ("API_KEY", r"\bPMAK-[a-f0-9]{24}-[a-f0-9]{34}\b", 0.99),                              # Postman API key
+    ("API_KEY", r"\blin_(?:api|oauth)_[A-Za-z0-9]{40}\b", 0.99),                           # Linear API / OAuth
+    ("API_KEY", r"\bATATT[A-Za-z0-9_\-=]{52,}\b", 0.97),                                   # Atlassian Cloud API token
+    ("API_KEY", r"\bdp\.pt\.[A-Za-z0-9]{43}\b", 0.99),                                     # Doppler personal token
+    ("API_KEY", r"\bdp\.st\.[A-Za-z0-9_\-]+\.[A-Za-z0-9]{43}\b", 0.99),                    # Doppler service token
+    ("API_KEY", r"\b(?:secret_[A-Za-z0-9]{40,}|ntn_[A-Za-z0-9]{40,})\b", 0.95),            # Notion integration token
+    ("API_KEY", r"\bfigd_[A-Za-z0-9_\-]{40,}\b", 0.97),                                    # Figma personal access token
+    ("API_KEY", r"\bpypi-AgEIcHlwaS5vcmc[A-Za-z0-9_\-]{50,}\b", 0.99),                     # PyPI upload token
+    ("API_KEY", r"\bnpm_[A-Za-z0-9]{36}\b", 0.99),                                         # npm publish token
+    ("API_KEY", r"\brubygems_[a-f0-9]{48}\b", 0.99),                                       # RubyGems API key
+    ("API_KEY", r"\bhf_[A-Za-z0-9]{34,}\b", 0.97),                                         # Hugging Face token
+    ("API_KEY", r"\bdop_v1_[a-f0-9]{64}\b", 0.99),                                         # DigitalOcean personal access
+    ("API_KEY", r"\bdoo_v1_[a-f0-9]{64}\b", 0.99),                                         # DigitalOcean OAuth
+    ("API_KEY", r"\bEAAA[A-Za-z0-9_\-]{60}\b", 0.95),                                      # Square access token
+    ("API_KEY", r"\bsq0csp-[A-Za-z0-9_\-]{43}\b", 0.99),                                   # Square OAuth secret
+    ("API_KEY", r"\bsntr(?:ys|yu)_[A-Za-z0-9_\-]{40,}\b", 0.97),                           # Sentry user/service token
+
+    # Slack incoming-webhook URL — the path tokens are the credential.
+    ("API_KEY",
+     r"\bhttps://hooks\.slack\.com/services/T[A-Z0-9]+/B[A-Z0-9]+/[A-Za-z0-9]+\b",
+     0.99),
 ]
 
 
