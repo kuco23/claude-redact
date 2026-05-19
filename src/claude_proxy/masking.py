@@ -1,9 +1,12 @@
 """Placeholder substitution — the mask/unmask round trip.
 
-Placeholder format: `<<MASK:ENTITY_TYPE:hex10>>`
-  - deterministic per (entity_type, value) — same secret gets the same token
-    for the lifetime of the process
-  - bounded length (<= MAX_PLACEHOLDER_LEN), needed by the streaming-buffer logic
+Placeholder format: `<<MASK:ENTITY_TYPE:hex16>>` (default), or `<<MASK:hex16>>`
+when `CLAUDE_PROXY_OPAQUE=1` — opaque mode strips the entity-type segment so
+Anthropic can't infer the *kind* of secret from the placeholder shape, at
+the cost of losing the entity-type cue for model reasoning.
+  - 16-hex digest (64 bits) — birthday collision risk at ~4e9 unique values
+  - deterministic per value — same secret gets the same token process-wide
+  - bounded length (<= MAX_PLACEHOLDER_LEN) for streaming-buffer logic
   - distinctive enough that Claude's responses round-trip it back intact
 
 The forward/reverse maps are module-globals on purpose: the proxy runs as a
@@ -14,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import re
 from collections import Counter
 
@@ -21,8 +25,19 @@ from claude_proxy import detection
 from claude_proxy.detection import Match
 
 logger = logging.getLogger(__name__)
+# Dedicated logger for plaintext ↔ placeholder pairs. Gated independently of
+# the main logger by `CLAUDE_PROXY_LOG_VALUES` (see logging_config.py) so that
+# `CLAUDE_PROXY_LOG_LEVEL=DEBUG` doesn't accidentally spill secrets to logs.
+values_logger = logging.getLogger("claude_proxy.values")
 
-PLACEHOLDER_RE = re.compile(r"<<MASK:[A-Z0-9_]+:[0-9a-f]{10}>>")
+_TRUTHY = {"1", "true", "yes", "on"}
+OPAQUE = os.environ.get("CLAUDE_PROXY_OPAQUE", "").lower() in _TRUTHY
+
+# Accept old 10-hex placeholders as well as new 16-hex ones, with or without
+# the entity-type segment. Old format may still appear in conversation history
+# after an upgrade or after toggling opaque mode; we want both `unmask` and
+# the entropy scanner's skip-list to recognize them.
+PLACEHOLDER_RE = re.compile(r"<<MASK:(?:[A-Z0-9_]+:)?[0-9a-f]{10,16}>>")
 MAX_PLACEHOLDER_LEN = 64
 
 _forward: dict[str, str] = {}
@@ -31,17 +46,23 @@ _reverse: dict[str, str] = {}
 
 def placeholder_for(entity_type: str, value: str) -> str:
     """Return a stable placeholder for `value`, creating one on first use.
-    Logs each newly-minted mapping at DEBUG so you can see what got masked
-    without having to dump the entire request body."""
-    cached = _forward.get(value)
-    if cached is not None:
-        return cached
-    digest = hashlib.sha256(value.encode()).hexdigest()[:10]
-    ph = f"<<MASK:{entity_type}:{digest}>>"
-    _forward[value] = ph
-    _reverse[ph] = value
-    logger.debug("masked %s: %r -> %s", entity_type, _short(value), ph)
+    Logs every application to `claude_proxy.values` (default suppressed; see
+    CLAUDE_PROXY_LOG_VALUES) so the per-value pairs don't leak when the main
+    logger is at DEBUG for protocol debugging."""
+    ph = _forward.get(value)
+    if ph is None:
+        digest = hashlib.sha256(value.encode()).hexdigest()[:16]
+        ph = f"<<MASK:{digest}>>" if OPAQUE else f"<<MASK:{entity_type}:{digest}>>"
+        _forward[value] = ph
+        _reverse[ph] = value
+    values_logger.debug("masked %s: %r -> %s", entity_type, _short(value), ph)
     return ph
+
+
+def snapshot() -> dict[str, str]:
+    """Return a placeholder→plaintext copy of the live reverse map.
+    Used by the audit route; callers should treat the result as sensitive."""
+    return dict(_reverse)
 
 
 def splice(text: str, matches: list[Match]) -> str:
@@ -95,10 +116,10 @@ def mask(text: str) -> str:
 def unmask(text: str) -> str:
     """Restore every placeholder to its original value. Unknown placeholders
     are left untouched (they're harmless and may belong to another process).
-    Each restoration is logged at DEBUG."""
+    Each restoration is logged via `claude_proxy.values`."""
     if not text or "<<MASK:" not in text:
         return text
-    debug = logger.isEnabledFor(logging.DEBUG)
+    debug = values_logger.isEnabledFor(logging.DEBUG)
 
     def _sub(m: re.Match[str]) -> str:
         ph = m.group(0)
@@ -106,7 +127,7 @@ def unmask(text: str) -> str:
         if original is None:
             return ph
         if debug:
-            logger.debug("unmasked %s -> %r", ph, _short(original))
+            values_logger.debug("unmasked %s -> %r", ph, _short(original))
         return original
 
     return PLACEHOLDER_RE.sub(_sub, text)

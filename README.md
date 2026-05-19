@@ -25,12 +25,18 @@ Detection runs in two passes:
    prefix; rejects ordinary English. (`detect-secrets` was tried first but
    its high-entropy plugins only fire on quoted source-code literals.)
 
-Each detected range is replaced with `<<MASK:ENTITY_TYPE:<sha10>>>`, a
-deterministic placeholder keyed off the original value — so the same secret
+Each detected range is replaced with `<<MASK:ENTITY_TYPE:<sha16>>>`, a
+deterministic placeholder keyed off the original value (16-hex = 64-bit
+digest, birthday collision risk at ~4×10⁹ unique values). The same secret
 gets the same token across turns, letting the model reason about identity
 ("the user's wallet") without seeing the actual value. The reverse map is
 applied on the way back, with per-content-block buffering for SSE so a
 placeholder that straddles a chunk boundary doesn't get partially restored.
+
+Set `CLAUDE_PROXY_OPAQUE=1` to strip the entity-type segment
+(`<<MASK:<sha16>>>`) — Anthropic no longer learns the *kind* of each masked
+value, but the model loses the cue and can no longer phrase identity in
+terms of "your API key" vs "your wallet".
 
 ## Install
 
@@ -77,7 +83,10 @@ cp .env.template .env
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `CLAUDE_PROXY_LOG_LEVEL` | `INFO` | `DEBUG` to log headers + every placeholder ↔ value pair |
+| `CLAUDE_PROXY_LOG_LEVEL` | `INFO` | `DEBUG` enables protocol-flow tracing (no plaintext) |
+| `CLAUDE_PROXY_LOG_VALUES` | `0` | `1` logs each placeholder ↔ plaintext pair via `claude_proxy.values` |
+| `CLAUDE_PROXY_OPAQUE` | `0` | `1` drops the entity-type segment from placeholders |
+| `CLAUDE_PROXY_AUDIT` | `0` | `1` exposes `GET /_audit/mappings` returning the live map as JSON |
 | `CLAUDE_PROXY_HOST` | `127.0.0.1` | Bind address for `python -m claude_proxy` |
 | `CLAUDE_PROXY_PORT` | `8888` | Bind port for `python -m claude_proxy` |
 | `CLAUDE_PROXY_UPSTREAM` | `https://api.anthropic.com` | Where to forward |
@@ -87,7 +96,7 @@ Quick offline sanity check (no API key, no network):
 ```bash
 uv run python -c "
 from claude_proxy.masking import mask, unmask
-t = 'Email alice@example.com re ETH 0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1 with glpat-abcdefghijklmnopqrst'
+t = 'Email alice@example.com re ETH 0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1 with sk-ant-api03-AbCdEf123456789xYz'
 m = mask(t); print('MASKED:', m); print('ROUND-TRIPS:', unmask(m) == t)
 "
 ```
@@ -128,8 +137,12 @@ update the route in [app.py](src/claude_proxy/app.py).
 
 - The forward/reverse placeholder maps live in process memory and are shared
   across all conversations the proxy sees. Restart the process to clear
-  them. For multi-tenant use, swap the module-level dicts in
-  [masking.py](src/claude_proxy/masking.py) for a keyed/TTL'd store.
+  them. Inspect the live map at any time with
+  `CLAUDE_PROXY_AUDIT=1 … && curl http://127.0.0.1:8888/_audit/mappings`.
+  For multi-tenant use, swap the module-level dicts in
+  [masking.py](src/claude_proxy/masking.py) for a keyed/TTL'd store —
+  otherwise session B can fetch placeholders minted by session A by guessing
+  or echoing them.
 - The `x-api-key` header passes through untouched. Headers are never masked,
   only request bodies.
 - Un-masking covers both `text` blocks (so the user reads plaintext in
@@ -143,3 +156,9 @@ update the route in [app.py](src/claude_proxy/app.py).
   base64 (image data, signed URLs, CSP nonces) is being masked.
 - The proxy terminates TLS in plaintext on localhost. Don't expose it to a
   network you don't control.
+- `CLAUDE_PROXY_LOG_VALUES=1` mirrors every secret the proxy sees into your
+  log stream. Useful while debugging recognizers; treat the resulting log
+  as sensitive (journald, file, tmux scrollback all inherit the trust
+  level of the proxy's memory). It's gated independently of
+  `CLAUDE_PROXY_LOG_LEVEL` so `DEBUG`-level protocol tracing stays safe to
+  share.
