@@ -23,10 +23,19 @@ def mask_request(body: dict[str, Any]) -> dict[str, Any]:
 
 
 def unmask_response(body: dict[str, Any]) -> dict[str, Any]:
-    """Mutate `body` in place, un-masking each text block in a Messages response."""
+    """Mutate `body` in place, un-masking `text` blocks (so the user reads
+    plaintext in chat) and the `input` JSON of every `tool_use` block (so
+    local tools receive real values). Plaintext that lands back in the next
+    request's transcript is re-masked by `mask_request`, so Anthropic still
+    only ever sees placeholders on the wire."""
     for block in body.get("content", []) or []:
-        if isinstance(block, dict) and block.get("type") == "text" and "text" in block:
+        if not isinstance(block, dict):
+            continue
+        t = block.get("type")
+        if t == "text" and "text" in block:
             block["text"] = unmask(block["text"])
+        elif t == "tool_use" and "input" in block:
+            block["input"] = _walk_unmask(block["input"])
     return body
 
 
@@ -43,3 +52,13 @@ def _walk_mask(content: Any) -> Any:
             elif t == "tool_result" and "content" in block:
                 block["content"] = _walk_mask(block["content"])
     return content
+
+
+def _walk_unmask(value: Any) -> Any:
+    if isinstance(value, str):
+        return unmask(value)
+    if isinstance(value, dict):
+        return {k: _walk_unmask(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_walk_unmask(v) for v in value]
+    return value

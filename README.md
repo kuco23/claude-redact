@@ -132,10 +132,12 @@ update the route in [app.py](src/claude_proxy/app.py).
   [masking.py](src/claude_proxy/masking.py) for a keyed/TTL'd store.
 - The `x-api-key` header passes through untouched. Headers are never masked,
   only request bodies.
-- Tool-use round trips: if the model emits a placeholder inside
-  `tool_use.input`, it reaches your tool runner as the placeholder, not the
-  original. Add `tool_use` handling to `unmask_response` if your tools need
-  the originals.
+- Un-masking covers both `text` blocks (so the user reads plaintext in
+  chat) and `tool_use.input` (so local tools receive real values). The
+  request leg re-masks every `text` block in the message history regardless
+  of role, so plaintext that lands in Claude Code's local transcript is
+  re-redacted before reaching Anthropic on the next turn. Net effect:
+  plaintext is visible on your machine; only placeholders cross the wire.
 - Regex detection is best-effort. Over-masking is the safe failure mode;
   under-masking leaks. Tune entropy limits in `DS_PLUGINS` if legitimate
   base64 (image data, signed URLs, CSP nonces) is being masked.
