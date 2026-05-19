@@ -381,6 +381,29 @@ wheels = [
 ]
 
 [[package]]
+name = "janus-proxy"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "presidio-analyzer" },
+    { name = "presidio-anonymizer" },
+    { name = "python-dotenv" },
+    { name = "uvicorn" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastapi", specifier = ">=0.115" },
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "presidio-analyzer", specifier = ">=2.2.362" },
+    { name = "presidio-anonymizer", specifier = ">=2.2.362" },
+    { name = "python-dotenv", specifier = ">=1.0" },
+    { name = "uvicorn", specifier = ">=0.30" },
+]
+
+[[package]]
 name = "jinja2"
 version = "3.1.6"
 source = { registry = "https://pypi.org/simple" }
@@ -634,29 +657,6 @@ dependencies = [
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/17/01/1c3404e8da63a979ae951b8822576bc0e52ca3a46a624ac9439786990c6d/presidio_anonymizer-2.2.362-py3-none-any.whl", hash = "sha256:b2d81542cb797360d18506a1aa73ea0dfacc44abca15248c81dd062f582e6b2b", size = 36603, upload-time = "2026-03-15T12:40:38.651Z" },
-]
-
-[[package]]
-name = "presidio-test"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "fastapi" },
-    { name = "httpx" },
-    { name = "presidio-analyzer" },
-    { name = "presidio-anonymizer" },
-    { name = "python-dotenv" },
-    { name = "uvicorn" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "fastapi", specifier = ">=0.115" },
-    { name = "httpx", specifier = ">=0.27" },
-    { name = "presidio-analyzer", specifier = ">=2.2.362" },
-    { name = "presidio-anonymizer", specifier = ">=2.2.362" },
-    { name = "python-dotenv", specifier = ">=1.0" },
-    { name = "uvicorn", specifier = ">=0.30" },
 ]
 
 [[package]]

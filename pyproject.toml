@@ -1,5 +1,5 @@
 [project]
-name = "presidio-test"
+name = "janus-proxy"
 version = "0.1.0"
 description = "Claude HTTP reverse proxy with Presidio-based secret masking"
 readme = "README.md"
