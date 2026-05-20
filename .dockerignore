@@ -20,6 +20,5 @@ __pycache__
 *.egg-info
 
 tests
-README.md
 Dockerfile
 .dockerignore
