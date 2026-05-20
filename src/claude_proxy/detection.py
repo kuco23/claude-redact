@@ -1,25 +1,28 @@
-"""Detection: Presidio analyzer + a small custom entropy scanner.
+"""Detection: regex + validator dispatch, plus a small entropy scanner.
 
-Both scanners return a list of `Match` tuples (start, end, entity_type)
-in character offsets within the input string. The masking module is
-responsible for ordering, overlap resolution, and splicing — this module
-just answers "what looks suspicious in this text?".
+Both scanners return a list of `Match` tuples (start, end, entity_type) in
+character offsets within the input string. The masking module is responsible
+for ordering, overlap resolution, and splicing — this module just answers
+"what looks suspicious in this text?".
 
-The entropy scanner replaces detect-secrets, whose high-entropy plugins
-were designed for quoted string literals in source code and either miss
-unquoted prose tokens entirely or, via the no-quote fallback, disable
-the entropy threshold and flood on plain English.
+Regex patterns live in `PATTERNS` as (entity_type, regex, validator?) tuples.
+The validator is an optional callable that receives the matched substring and
+returns False to reject the match (e.g. Luhn check for credit cards, octet
+range check for IPv4). Phone numbers use `phonenumbers.PhoneNumberMatcher`
+directly because a single regex can't capture all valid international forms.
+
+The entropy scanner catches opaque base64/hex tokens that have no recognizable
+provider prefix. Tuned to reject typical English while admitting real-world
+API keys and session tokens of 20+ chars.
 """
 from __future__ import annotations
 
 import math
 import re
 from collections import Counter
-from typing import NamedTuple
+from typing import Callable, NamedTuple
 
-from presidio_analyzer import AnalyzerEngine
-
-from claude_proxy import recognizers
+import phonenumbers
 
 
 class Match(NamedTuple):
@@ -27,6 +30,168 @@ class Match(NamedTuple):
     end: int
     entity_type: str
 
+
+# --- Validators ----------------------------------------------------------
+
+def _luhn_ok(s: str) -> bool:
+    digits = [int(c) for c in s if c.isdigit()]
+    if not 13 <= len(digits) <= 19:
+        return False
+    checksum = 0
+    for i, d in enumerate(reversed(digits)):
+        if i % 2:
+            d *= 2
+            if d > 9:
+                d -= 9
+        checksum += d
+    return checksum % 10 == 0
+
+
+def _valid_ipv4(s: str) -> bool:
+    return all(0 <= int(p) <= 255 for p in s.split("."))
+
+
+# --- Patterns ------------------------------------------------------------
+
+Validator = Callable[[str], bool]
+
+# (entity_type, regex, optional validator). Order matters only for tie-breaks
+# inside the same offset range; masking._dedupe_overlaps picks longest-wins.
+PATTERNS: list[tuple[str, str, Validator | None]] = [
+    # Built-in PII (replaces Presidio's default recognizers).
+    ("EMAIL_ADDRESS",
+     r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b", None),
+    # SSN: reject area codes 000, 666, 9XX; group 00; serial 0000.
+    ("US_SSN",
+     r"\b(?!000|666|9\d{2})\d{3}-(?!00)\d{2}-(?!0000)\d{4}\b", None),
+    # 13-19 digits with optional space/dash separators. The final digit has no
+    # trailing separator so the match doesn't eat a following whitespace char.
+    ("CREDIT_CARD",
+     r"\b(?:\d[ \-]?){12,18}\d\b", _luhn_ok),
+    ("IP_ADDRESS",
+     r"\b(?:\d{1,3}\.){3}\d{1,3}\b", _valid_ipv4),
+    ("IP_ADDRESS",
+     r"(?:[0-9a-fA-F]{1,4}:){2,7}[0-9a-fA-F]{1,4}", None),
+
+    # UUID / GUID (8-4-4-4-12), commonly used as API keys, tenant IDs, secrets.
+    ("UUID",
+     r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b",
+     None),
+
+    # JSON Web Token: three base64url segments joined by dots, header starts with eyJ.
+    ("JWT",
+     r"\beyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b",
+     None),
+
+    # PEM-encoded private keys: RSA, EC, DSA, PKCS#8, OpenSSH, encrypted variants.
+    ("CRYPTO_PRIVATE_KEY",
+     r"-----BEGIN (?:[A-Z]+ )?PRIVATE KEY-----[\s\S]+?-----END (?:[A-Z]+ )?PRIVATE KEY-----",
+     None),
+
+    # Hex digests: MD5 / SHA1 / SHA256 / SHA512. Also catches raw 64-hex secp256k1 keys.
+    ("HASH", r"\b[a-f0-9]{32}\b", None),
+    ("HASH", r"\b[a-f0-9]{40}\b", None),
+    ("HASH", r"\b[a-f0-9]{64}\b", None),
+    ("HASH", r"\b[a-f0-9]{128}\b", None),
+
+    # Ethereum (and EVM-compatible chains): 0x + 40 hex.
+    ("ETH_ADDRESS", r"\b0x[a-fA-F0-9]{40}\b", None),
+
+    # Bitcoin: legacy P2PKH (1...) / P2SH (3...) and bech32 SegWit (bc1...).
+    # Base58 alphabet excludes 0, O, I, l. Length 26-35 incl. prefix.
+    ("BTC_ADDRESS", r"\b[13][1-9A-HJ-NP-Za-km-z]{25,34}\b", None),
+    ("BTC_ADDRESS", r"\bbc1[ac-hj-np-z02-9]{39,59}\b", None),
+
+    # Bitcoin Cash CashAddr.
+    ("BCH_ADDRESS", r"\bbitcoincash:[qp][ac-hj-np-z02-9]{40,42}\b", None),
+
+    # Litecoin: legacy (L.../M...) and bech32 (ltc1...).
+    ("LTC_ADDRESS", r"\b[LM][1-9A-HJ-NP-Za-km-z]{26,33}\b", None),
+    ("LTC_ADDRESS", r"\bltc1[ac-hj-np-z02-9]{39,59}\b", None),
+
+    # Dogecoin: P2PKH starts with D, 34 chars total.
+    ("DOGE_ADDRESS", r"\bD[1-9A-HJ-NP-Za-km-z]{33}\b", None),
+
+    # Ripple (XRP): lowercase `r`, base58, 25-35 chars, must contain a digit
+    # (real XRP addresses have a base58 checksum that virtually always
+    # includes digits, while camelCase identifiers do not).
+    ("XRP_ADDRESS",
+     r"\b(?-i:r)(?=[1-9A-HJ-NP-Za-km-z]*[0-9])[1-9A-HJ-NP-Za-km-z]{24,34}\b",
+     None),
+
+    # Tron (TRX): starts with T, 34 chars total.
+    ("TRX_ADDRESS", r"\bT[1-9A-HJ-NP-Za-km-z]{33}\b", None),
+
+    # Monero (XMR): base58, 95 chars, starts with 4 (standard) or 8 (subaddress).
+    ("XMR_ADDRESS", r"\b[48][0-9AB][1-9A-HJ-NP-Za-km-z]{93}\b", None),
+
+    # Cardano (ADA) Shelley-era bech32 addresses.
+    ("ADA_ADDRESS", r"\baddr1[ac-hj-np-z02-9]{50,}\b", None),
+
+    # Provider-prefixed API keys.
+    ("API_KEY", r"\bsk-ant-[A-Za-z0-9_\-]{20,}\b", None),           # Anthropic
+    ("API_KEY", r"\bsk-proj-[A-Za-z0-9_\-]{20,}\b", None),          # OpenAI project key
+    ("API_KEY", r"\bsk-[A-Za-z0-9]{20,}\b", None),                  # OpenAI generic
+    ("API_KEY", r"\b(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{20,}\b", None),  # Stripe
+    ("API_KEY", r"\bgh[pousr]_[A-Za-z0-9]{36}\b", None),            # GitHub classic
+    ("API_KEY", r"\bgithub_pat_[A-Za-z0-9_]{82}\b", None),          # GitHub fine-grained
+    ("API_KEY",                                                      # GitLab (PAT, deploy,
+     r"\bgl(?:pat|dt|rt|ptt|ft|agent|oas|cbt|soat|imt)-[A-Za-z0-9_\-]{20,}\b",
+     None),                                                          # runner, trigger, etc.)
+    ("API_KEY", r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b", None),            # AWS access key id
+    ("API_KEY", r"\bAIza[0-9A-Za-z_\-]{35}\b", None),               # Google API key
+    ("API_KEY", r"\bxox[baprs]-[A-Za-z0-9\-]{10,}\b", None),        # Slack token
+
+    # Patterns adapted from gitleaks (github.com/gitleaks/gitleaks) — covering
+    # the SaaS providers most likely to show up in dev traffic.
+    ("API_KEY", r"\bAC[a-f0-9]{32}\b", None),                                              # Twilio Account SID
+    ("API_KEY", r"\bSG\.[A-Za-z0-9_\-]{22}\.[A-Za-z0-9_\-]{43}\b", None),                  # SendGrid
+    ("API_KEY", r"\bkey-[a-f0-9]{32}\b", None),                                            # Mailgun private API key
+    ("API_KEY", r"\b[a-f0-9]{32}-us\d{1,2}\b", None),                                      # Mailchimp API key
+    ("API_KEY", r"\bPMAK-[a-f0-9]{24}-[a-f0-9]{34}\b", None),                              # Postman API key
+    ("API_KEY", r"\blin_(?:api|oauth)_[A-Za-z0-9]{40}\b", None),                           # Linear API / OAuth
+    ("API_KEY", r"\bATATT[A-Za-z0-9_\-=]{52,}\b", None),                                   # Atlassian Cloud API token
+    ("API_KEY", r"\bdp\.pt\.[A-Za-z0-9]{43}\b", None),                                     # Doppler personal token
+    ("API_KEY", r"\bdp\.st\.[A-Za-z0-9_\-]+\.[A-Za-z0-9]{43}\b", None),                    # Doppler service token
+    ("API_KEY", r"\b(?:secret_[A-Za-z0-9]{40,}|ntn_[A-Za-z0-9]{40,})\b", None),            # Notion integration token
+    ("API_KEY", r"\bfigd_[A-Za-z0-9_\-]{40,}\b", None),                                    # Figma personal access token
+    ("API_KEY", r"\bpypi-AgEIcHlwaS5vcmc[A-Za-z0-9_\-]{50,}\b", None),                     # PyPI upload token
+    ("API_KEY", r"\bnpm_[A-Za-z0-9]{36}\b", None),                                         # npm publish token
+    ("API_KEY", r"\brubygems_[a-f0-9]{48}\b", None),                                       # RubyGems API key
+    ("API_KEY", r"\bhf_[A-Za-z0-9]{34,}\b", None),                                         # Hugging Face token
+    ("API_KEY", r"\bdop_v1_[a-f0-9]{64}\b", None),                                         # DigitalOcean personal access
+    ("API_KEY", r"\bdoo_v1_[a-f0-9]{64}\b", None),                                         # DigitalOcean OAuth
+    ("API_KEY", r"\bEAAA[A-Za-z0-9_\-]{60}\b", None),                                      # Square access token
+    ("API_KEY", r"\bsq0csp-[A-Za-z0-9_\-]{43}\b", None),                                   # Square OAuth secret
+    ("API_KEY", r"\bsntr(?:ys|yu)_[A-Za-z0-9_\-]{40,}\b", None),                           # Sentry user/service token
+
+    # Slack incoming-webhook URL — the path tokens are the credential.
+    ("API_KEY",
+     r"\bhttps://hooks\.slack\.com/services/T[A-Z0-9]+/B[A-Z0-9]+/[A-Za-z0-9]+\b",
+     None),
+]
+
+_COMPILED: list[tuple[str, re.Pattern[str], Validator | None]] = [
+    (et, re.compile(rx), val) for et, rx, val in PATTERNS
+]
+
+
+def find_entities(text: str) -> list[Match]:
+    """Run all regex recognizers plus the phonenumbers scanner."""
+    out: list[Match] = []
+    for entity_type, rx, validator in _COMPILED:
+        for m in rx.finditer(text):
+            if validator and not validator(m.group(0)):
+                continue
+            out.append(Match(m.start(), m.end(), entity_type))
+    # Region-agnostic phone scan. PhoneNumberMatcher handles international
+    # forms and embedded contexts a single regex can't express cleanly.
+    for pm in phonenumbers.PhoneNumberMatcher(text, None):
+        out.append(Match(pm.start, pm.end, "PHONE_NUMBER"))
+    return out
+
+
+# --- Entropy scanner -----------------------------------------------------
 
 # Shortest candidate run we consider. Below 20 chars, hex/base64-shaped
 # words are dominated by ordinary text and identifiers; above this, the
@@ -42,18 +207,6 @@ HEX_ENTROPY_LIMIT = 3.0
 
 _BASE64_RE = re.compile(rf"[A-Za-z0-9+/]{{{ENTROPY_MIN_LEN},}}={{0,2}}")
 _HEX_RE = re.compile(rf"\b[a-fA-F0-9]{{{ENTROPY_MIN_LEN},}}\b")
-
-
-analyzer = AnalyzerEngine()
-recognizers.register(analyzer)
-
-
-def find_entities(text: str) -> list[Match]:
-    """Run Presidio's analyzer (built-in + custom recognizers)."""
-    results = analyzer.analyze(
-        text=text, entities=recognizers.ENTITY_TYPES, language="en"
-    )
-    return [Match(r.start, r.end, r.entity_type) for r in results]
 
 
 def find_high_entropy(text: str) -> list[Match]:

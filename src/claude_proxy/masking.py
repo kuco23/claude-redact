@@ -92,15 +92,16 @@ def _dedupe_overlaps(matches: list[Match]) -> list[Match]:
 def mask(text: str) -> str:
     """Two-pass detection + replacement pipeline.
 
-    Pass 1: Presidio (built-in PII + custom regex recognizers).
-    Pass 2: detect-secrets entropy detectors, skipping placeholder regions
-            so we don't recursively mask `<<MASK:…:hex>>` as a hex secret.
+    Pass 1: regex recognizers (built-in PII + custom patterns) and the
+            phonenumbers scanner.
+    Pass 2: entropy detectors, skipping placeholder regions so we don't
+            recursively mask `<<MASK:…:hex>>` as a hex secret.
     """
     if not text:
         return text
     entities = detection.find_entities(text)
     if entities:
-        logger.info("presidio matched %s", dict(Counter(m.entity_type for m in entities)))
+        logger.info("regex matched %s", dict(Counter(m.entity_type for m in entities)))
     text = splice(text, entities)
     masked_ranges = [(m.start(), m.end()) for m in PLACEHOLDER_RE.finditer(text)]
     secrets = [
