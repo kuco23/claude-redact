@@ -20,10 +20,13 @@ COPY pyproject.toml uv.lock README.md ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-install-project --no-dev
 
-# Now install the project itself.
+# Now install the project itself. --no-editable so the package is copied
+# into the venv instead of getting an editable .pth pointer at /app/src —
+# the runtime stage only copies /opt/venv, so a dangling pointer would
+# leave `claude_proxy` unimportable.
 COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
+    uv sync --frozen --no-dev --no-editable
 
 # --- Runtime stage -----------------------------------------------------------
 FROM python:3.13-slim AS runtime
