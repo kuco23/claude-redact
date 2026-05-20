@@ -1,0 +1,25 @@
+# Keep the build context small — only files the Dockerfile actually COPYs
+# from need to be present. Everything else either bloats the image or risks
+# leaking sensitive data (.env, .claude/settings.local.json).
+
+.git
+.github
+.gitignore
+.venv
+.env
+.env.template
+.python-version
+.claude
+.devcontainer
+.pytest_cache
+.ruff_cache
+.mypy_cache
+
+__pycache__
+*.py[cod]
+*.egg-info
+
+tests
+README.md
+Dockerfile
+.dockerignore
