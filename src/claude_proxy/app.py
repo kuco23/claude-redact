@@ -69,6 +69,11 @@ app = FastAPI()
 client = httpx.AsyncClient(base_url=UPSTREAM, timeout=httpx.Timeout(600.0, connect=10.0))
 
 
+@app.get("/_health")
+async def health() -> Response:
+    return JSONResponse({"status": "ok"})
+
+
 @app.get("/_audit/mappings")
 async def audit_mappings() -> Response:
     """Dump the live placeholder → plaintext map. Returns 404 unless
