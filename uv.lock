@@ -134,7 +134,7 @@ wheels = [
 ]
 
 [[package]]
-name = "janus-proxy"
+name = "janus-claude"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

@@ -1,5 +1,5 @@
 [project]
-name = "janus-proxy"
+name = "janus-claude"
 version = "0.1.0"
 description = "Claude HTTP reverse proxy with regex-based secret masking"
 readme = "README.md"
