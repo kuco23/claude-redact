@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import json
-from typing import AsyncIterator
+from typing import AsyncIterator, cast
+
+import httpx
 
 from claude_proxy.masking import placeholder_for
 from claude_proxy.streaming import _split_buffer, transform_sse
@@ -81,7 +83,7 @@ async def test_transform_unmasks_text_delta():
               "delta": {"type": "text_delta", "text": f"reply to {ph} now"}}),
         _sse({"type": "content_block_stop", "index": 0}),
     ])
-    out = await _collect(transform_sse(upstream))
+    out = await _collect(transform_sse(cast(httpx.Response, upstream)))
     assert "alice@example.com" in out
     assert ph not in out
     assert upstream.closed
@@ -101,7 +103,7 @@ async def test_transform_buffers_placeholder_across_chunks():
               "delta": {"type": "text_delta", "text": f"{part2} suffix"}}),
         _sse({"type": "content_block_stop", "index": 0}),
     ])
-    out = await _collect(transform_sse(upstream))
+    out = await _collect(transform_sse(cast(httpx.Response, upstream)))
     # The first chunk should not have leaked the half-placeholder; the
     # second chunk should contain the unmasked secret.
     assert "secret-token-abc" in out
@@ -117,7 +119,7 @@ async def test_transform_flushes_tail_at_stop():
               "delta": {"type": "text_delta", "text": "incomplete <<MASK:API_KEY:abc"}}),
         _sse({"type": "content_block_stop", "index": 0}),
     ])
-    out = await _collect(transform_sse(upstream))
+    out = await _collect(transform_sse(cast(httpx.Response, upstream)))
     # The held tail must appear before content_block_stop reaches the client.
     tail_pos = out.find("<<MASK:API_KEY:abc")
     stop_pos = out.find("content_block_stop")
@@ -132,7 +134,7 @@ async def test_transform_passes_through_unknown_events():
         "",
         _sse({"type": "message_stop"}),
     ])
-    out = await _collect(transform_sse(upstream))
+    out = await _collect(transform_sse(cast(httpx.Response, upstream)))
     assert "msg_1" in out
     assert "message_stop" in out
 
@@ -143,6 +145,6 @@ async def test_transform_handles_malformed_data_line():
         "data: not json {{{",
         _sse({"type": "message_stop"}),
     ])
-    out = await _collect(transform_sse(upstream))
+    out = await _collect(transform_sse(cast(httpx.Response, upstream)))
     assert "not json" in out
     assert "message_stop" in out
