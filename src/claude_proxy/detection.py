@@ -17,6 +17,7 @@ API keys and session tokens of 20+ chars.
 """
 from __future__ import annotations
 
+import ipaddress
 import math
 import re
 from collections import Counter
@@ -51,6 +52,14 @@ def _valid_ipv4(s: str) -> bool:
     return all(0 <= int(p) <= 255 for p in s.split("."))
 
 
+def _valid_ipv6(s: str) -> bool:
+    try:
+        ipaddress.IPv6Address(s)
+        return True
+    except (ValueError, ipaddress.AddressValueError):
+        return False
+
+
 # --- Patterns ------------------------------------------------------------
 
 Validator = Callable[[str], bool]
@@ -70,8 +79,12 @@ PATTERNS: list[tuple[str, str, Validator | None]] = [
      r"\b(?:\d[ \-]?){12,18}\d\b", _luhn_ok),
     ("IP_ADDRESS",
      r"\b(?:\d{1,3}\.){3}\d{1,3}\b", _valid_ipv4),
+    # IPv6: broad regex (any hex-and-colon run with ≥2 colons) gated by the
+    # stdlib validator, which handles the full set of legal forms including
+    # `::` shorthand. Lookarounds avoid latching onto adjacent word chars.
     ("IP_ADDRESS",
-     r"(?:[0-9a-fA-F]{1,4}:){2,7}[0-9a-fA-F]{1,4}", None),
+     r"(?<![:\w])(?:[0-9a-fA-F]{0,4}:){2,}[0-9a-fA-F]{0,4}(?![:\w])",
+     _valid_ipv6),
 
     # UUID / GUID (8-4-4-4-12), commonly used as API keys, tenant IDs, secrets.
     ("UUID",
