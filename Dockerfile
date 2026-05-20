@@ -16,7 +16,7 @@ WORKDIR /app
 
 # Install runtime deps first (no project) so the layer is cacheable across
 # source-only changes. --no-dev skips pytest et al.
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml uv.lock README.md ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-install-project --no-dev
 
