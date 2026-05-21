@@ -1,7 +1,7 @@
 """Placeholder substitution — the mask/unmask round trip.
 
 Placeholder format: `<<MASK:ENTITY_TYPE:hex16>>` (default), or `<<MASK:hex16>>`
-when `CLAUDE_PROXY_OPAQUE=1` — opaque mode strips the entity-type segment so
+when `CLAUDE_REDACT_OPAQUE=1` — opaque mode strips the entity-type segment so
 Anthropic can't infer the *kind* of secret from the placeholder shape, at
 the cost of losing the entity-type cue for model reasoning.
   - 16-hex digest (64 bits) — birthday collision risk at ~4e9 unique values
@@ -21,17 +21,17 @@ import os
 import re
 from collections import Counter
 
-from claude_proxy import detection
-from claude_proxy.detection import Match
+from claude_redact import detection
+from claude_redact.detection import Match
 
 logger = logging.getLogger(__name__)
 # Dedicated logger for plaintext ↔ placeholder pairs. Gated independently of
-# the main logger by `CLAUDE_PROXY_LOG_VALUES` (see logging_config.py) so that
-# `CLAUDE_PROXY_LOG_LEVEL=DEBUG` doesn't accidentally spill secrets to logs.
-values_logger = logging.getLogger("claude_proxy.values")
+# the main logger by `CLAUDE_REDACT_LOG_VALUES` (see logging_config.py) so that
+# `CLAUDE_REDACT_LOG_LEVEL=DEBUG` doesn't accidentally spill secrets to logs.
+values_logger = logging.getLogger("claude_redact.values")
 
 _TRUTHY = {"1", "true", "yes", "on"}
-OPAQUE = os.environ.get("CLAUDE_PROXY_OPAQUE", "").lower() in _TRUTHY
+OPAQUE = os.environ.get("CLAUDE_REDACT_OPAQUE", "").lower() in _TRUTHY
 
 # Accept old 10-hex placeholders as well as new 16-hex ones, with or without
 # the entity-type segment. Old format may still appear in conversation history
@@ -46,8 +46,8 @@ _reverse: dict[str, str] = {}
 
 def placeholder_for(entity_type: str, value: str) -> str:
     """Return a stable placeholder for `value`, creating one on first use.
-    Logs every application to `claude_proxy.values` (default suppressed; see
-    CLAUDE_PROXY_LOG_VALUES) so the per-value pairs don't leak when the main
+    Logs every application to `claude_redact.values` (default suppressed; see
+    CLAUDE_REDACT_LOG_VALUES) so the per-value pairs don't leak when the main
     logger is at DEBUG for protocol debugging."""
     ph = _forward.get(value)
     if ph is None:
@@ -117,7 +117,7 @@ def mask(text: str) -> str:
 def unmask(text: str) -> str:
     """Restore every placeholder to its original value. Unknown placeholders
     are left untouched (they're harmless and may belong to another process).
-    Each restoration is logged via `claude_proxy.values`."""
+    Each restoration is logged via `claude_redact.values`."""
     if not text or "<<MASK:" not in text:
         return text
     debug = values_logger.isEnabledFor(logging.DEBUG)

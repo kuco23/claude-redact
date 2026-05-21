@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from claude_proxy.masking import mask, unmask
+from claude_redact.masking import mask, unmask
 
 
 def mask_request(body: dict[str, Any]) -> dict[str, Any]:

@@ -19,7 +19,7 @@ from typing import AsyncIterator
 
 import httpx
 
-from claude_proxy.masking import MAX_PLACEHOLDER_LEN, unmask
+from claude_redact.masking import MAX_PLACEHOLDER_LEN, unmask
 
 
 # Map each streamable delta kind to the field that carries its payload.

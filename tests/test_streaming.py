@@ -6,8 +6,8 @@ from typing import AsyncIterator, cast
 
 import httpx
 
-from claude_proxy.masking import placeholder_for
-from claude_proxy.streaming import _split_buffer, transform_sse
+from claude_redact.masking import placeholder_for
+from claude_redact.streaming import _split_buffer, transform_sse
 
 
 # --- Pure split_buffer logic --------------------------------------------

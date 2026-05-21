@@ -1,11 +1,11 @@
-"""Logging setup for the `claude_proxy.*` logger tree.
+"""Logging setup for the `claude_redact.*` logger tree.
 
 Two logger surfaces:
-  - `claude_proxy` — protocol / control-flow tracing. Level set by
-    `CLAUDE_PROXY_LOG_LEVEL` (default INFO). Safe to set to DEBUG when
+  - `claude_redact` — protocol / control-flow tracing. Level set by
+    `CLAUDE_REDACT_LOG_LEVEL` (default INFO). Safe to set to DEBUG when
     sharing a session, since it never emits plaintext.
-  - `claude_proxy.values` — plaintext ↔ placeholder pairs. Off unless
-    `CLAUDE_PROXY_LOG_VALUES` is truthy. Decoupled so that DEBUG-ing the
+  - `claude_redact.values` — plaintext ↔ placeholder pairs. Off unless
+    `CLAUDE_REDACT_LOG_VALUES` is truthy. Decoupled so that DEBUG-ing the
     proxy doesn't dump credentials into journald / a tail buffer.
 
 We attach our own handler and disable propagation, so uvicorn's
@@ -21,10 +21,10 @@ _TRUTHY = {"1", "true", "yes", "on"}
 
 
 def configure() -> None:
-    level = os.environ.get("CLAUDE_PROXY_LOG_LEVEL", "INFO").upper()
-    values_on = os.environ.get("CLAUDE_PROXY_LOG_VALUES", "").lower() in _TRUTHY
+    level = os.environ.get("CLAUDE_REDACT_LOG_LEVEL", "INFO").upper()
+    values_on = os.environ.get("CLAUDE_REDACT_LOG_VALUES", "").lower() in _TRUTHY
 
-    logger = logging.getLogger("claude_proxy")
+    logger = logging.getLogger("claude_redact")
     if logger.handlers:
         # Already configured — keep it idempotent across re-imports / re-entry.
         logger.setLevel(level)
@@ -44,8 +44,8 @@ def configure() -> None:
 
 
 def _configure_values_logger(enabled: bool) -> None:
-    """Set `claude_proxy.values` level independently. Propagates to the
+    """Set `claude_redact.values` level independently. Propagates to the
     parent handler so output formatting stays consistent; the level here
     is the gate."""
-    vlog = logging.getLogger("claude_proxy.values")
+    vlog = logging.getLogger("claude_redact.values")
     vlog.setLevel(logging.DEBUG if enabled else logging.WARNING)

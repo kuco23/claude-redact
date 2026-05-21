@@ -5,9 +5,9 @@ import re
 
 import pytest
 
-from claude_proxy import masking
-from claude_proxy.detection import Match
-from claude_proxy.masking import (
+from claude_redact import masking
+from claude_redact.detection import Match
+from claude_redact.masking import (
     PLACEHOLDER_RE,
     _dedupe_overlaps,
     mask,

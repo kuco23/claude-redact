@@ -1,8 +1,8 @@
 """JSON-walker tests for content.py — mask_request / unmask_response."""
 from __future__ import annotations
 
-from claude_proxy.content import mask_request, unmask_response
-from claude_proxy.masking import PLACEHOLDER_RE, placeholder_for
+from claude_redact.content import mask_request, unmask_response
+from claude_redact.masking import PLACEHOLDER_RE, placeholder_for
 
 
 def test_mask_request_string_system_prompt():

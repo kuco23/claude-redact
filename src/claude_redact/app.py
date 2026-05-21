@@ -17,21 +17,21 @@ import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
-from claude_proxy.content import mask_request, unmask_response
-from claude_proxy.masking import snapshot
-from claude_proxy.streaming import transform_sse
+from claude_redact.content import mask_request, unmask_response
+from claude_redact.masking import snapshot
+from claude_redact.streaming import transform_sse
 
 logger = logging.getLogger(__name__)
 
-UPSTREAM = os.environ.get("CLAUDE_PROXY_UPSTREAM", "https://api.anthropic.com")
+UPSTREAM = os.environ.get("CLAUDE_REDACT_UPSTREAM", "https://api.anthropic.com")
 _TRUTHY = {"1", "true", "yes", "on"}
-AUDIT_ENABLED = os.environ.get("CLAUDE_PROXY_AUDIT", "").lower() in _TRUTHY
+AUDIT_ENABLED = os.environ.get("CLAUDE_REDACT_AUDIT", "").lower() in _TRUTHY
 
 if AUDIT_ENABLED:
-    _bind = os.environ.get("CLAUDE_PROXY_HOST", "127.0.0.1")
+    _bind = os.environ.get("CLAUDE_REDACT_HOST", "127.0.0.1")
     if _bind not in {"127.0.0.1", "localhost", "::1"}:
         logger.warning(
-            "CLAUDE_PROXY_AUDIT=1 with bind=%s exposes /_audit/mappings to "
+            "CLAUDE_REDACT_AUDIT=1 with bind=%s exposes /_audit/mappings to "
             "anything that can reach the port — every secret in the live map "
             "is fetchable. Restrict the bind or front the audit route with auth.",
             _bind,
@@ -77,7 +77,7 @@ async def health() -> Response:
 @app.get("/_audit/mappings")
 async def audit_mappings() -> Response:
     """Dump the live placeholder → plaintext map. Returns 404 unless
-    CLAUDE_PROXY_AUDIT=1 — the route's existence is itself opt-in.
+    CLAUDE_REDACT_AUDIT=1 — the route's existence is itself opt-in.
     Anyone able to reach this URL can read every secret the proxy has
     seen, so keep the bind on localhost."""
     if not AUDIT_ENABLED:

@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import pytest
 
-from claude_proxy import detection
-from claude_proxy.detection import (
+from claude_redact import detection
+from claude_redact.detection import (
     _luhn_ok,
     _shannon,
     _valid_ipv4,

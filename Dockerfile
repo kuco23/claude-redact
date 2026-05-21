@@ -23,7 +23,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Now install the project itself. --no-editable so the package is copied
 # into the venv instead of getting an editable .pth pointer at /app/src —
 # the runtime stage only copies /opt/venv, so a dangling pointer would
-# leave `claude_proxy` unimportable.
+# leave `claude_redact` unimportable.
 COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-editable
@@ -39,13 +39,13 @@ COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    CLAUDE_PROXY_HOST=0.0.0.0 \
-    CLAUDE_PROXY_PORT=8888
+    CLAUDE_REDACT_HOST=0.0.0.0 \
+    CLAUDE_REDACT_PORT=8888
 
 EXPOSE 8888
 USER app
 
 HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
-    CMD python -c "import os,urllib.request,sys; sys.exit(0 if urllib.request.urlopen(f\"http://127.0.0.1:{os.environ.get('CLAUDE_PROXY_PORT','8888')}/_health\", timeout=2).status == 200 else 1)"
+    CMD python -c "import os,urllib.request,sys; sys.exit(0 if urllib.request.urlopen(f\"http://127.0.0.1:{os.environ.get('CLAUDE_REDACT_PORT','8888')}/_health\", timeout=2).status == 200 else 1)"
 
-ENTRYPOINT ["python", "-m", "claude_proxy"]
+ENTRYPOINT ["python", "-m", "claude_redact"]
