@@ -81,6 +81,69 @@ from anthropic import Anthropic
 client = Anthropic(base_url="http://127.0.0.1:8888")
 ```
 
+## Devcontainer
+
+The repo ships a devcontainer config that runs the proxy as a sidecar so
+Claude Code inside the container talks to Anthropic *through* claude-redact
+by default. You don't have to start the proxy by hand or set
+`ANTHROPIC_BASE_URL` — both are wired up by [docker-compose.yaml](.devcontainer/docker-compose.yaml).
+
+**Layout.**
+
+```
+.devcontainer/
+  devcontainer.json    dev image config, VS Code extensions, postCreate steps
+  docker-compose.yaml  two services: dev (built locally) + claude-redact (sidecar)
+  Dockerfile           dev-image base (Python + uv + dev tooling)
+  initialize.sh        runs on the host before the container starts
+```
+
+The `dev` service depends on the `claude-redact` service being healthy
+and sets `ANTHROPIC_BASE_URL=http://claude-redact:8888` in its
+environment. The sidecar image is pulled from
+`ghcr.io/kuco23/claude-redact:latest` (override the tag in
+[docker-compose.yaml](.devcontainer/docker-compose.yaml) if you want to
+pin a version or point at a local build).
+
+**Open in VS Code.**
+
+1. Install the "Dev Containers" extension (`ms-vscode-remote.remote-containers`).
+2. `git clone` this repo and open the folder in VS Code.
+3. When prompted, *Reopen in Container* — or run **Dev Containers: Reopen in Container** from the command palette.
+
+On first start, [initialize.sh](.devcontainer/initialize.sh) runs on the
+host and:
+
+- creates `~/.claude/` and `~/.claude.json` if they don't exist (Claude
+  Code's config is bind-mounted in, so your auth persists across rebuilds);
+- writes `WORKSPACE_NAME=$(basename "$PWD")` to `.devcontainer/.env` so
+  the bind-mount path matches whatever directory you cloned into.
+
+After the container is up, `postCreateCommand` installs Claude Code and
+runs `uv sync`. Open a terminal inside the container and run `claude` —
+all traffic flows through the sidecar proxy automatically.
+
+**Open from the CLI.** If you prefer the `devcontainer` CLI to VS Code:
+
+```bash
+npm install -g @devcontainers/cli
+devcontainer up --workspace-folder .
+devcontainer exec --workspace-folder . claude
+```
+
+**Verify the proxy is in the path.** Inside the container:
+
+```bash
+echo "$ANTHROPIC_BASE_URL"               # http://claude-redact:8888
+curl -s http://claude-redact:8888/_health  # {"status":"ok"}
+```
+
+**Rebuild after changing the proxy.** The sidecar runs a *published*
+image; local changes to `src/claude_redact/` don't affect it. To test
+changes against the live container, either rebuild and push the image,
+or swap the sidecar's `image:` line for a local `build:` block pointing
+at the repo's [Dockerfile](Dockerfile) and rerun *Rebuild Container*.
+
 ## Configuration
 
 Settings come from environment variables; `.env` at the project root is
