@@ -17,9 +17,11 @@ def _reset_mask_maps():
     masking._reverse.clear()
     masking._reverse_lower.clear()
     masking._max_fake_len = 0
-    # Seed the generators' private RNG so output is deterministic across a
-    # test run — makes failures bisectable and keeps `pytest -x` reproducible.
-    # We touch only the module-local RNG, never the global `random` state.
+    # Pin the seed so tests exercise the deterministic (keyed) path and
+    # produce identical fakes on every run, regardless of the user's host
+    # env. Also reset the unkeyed-fallback RNG state in case any individual
+    # test temporarily clears `_SEED` to test the random path.
+    generators._SEED = b"test-seed-fixed"
     generators._rng.seed(0)
     yield
     masking._forward.clear()

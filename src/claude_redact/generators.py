@@ -18,6 +18,8 @@ first separator, randomize the rest at the same length".
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 import ipaddress
 import os
 import random
@@ -25,22 +27,29 @@ import re
 import string
 import uuid
 
-# Module-local RNG. We deliberately don't touch the global `random` state so
-# libraries that depend on it (httpx backoff jitter, etc.) keep their normal
-# OS-seeded behavior. Set `CLAUDE_REDACT_SEED` in the environment to make
-# generator output reproducible across process restarts — useful for tests
-# and demo recordings; do NOT do this in any setting where the seed could
-# leak (a known seed + known input order lets an observer reconstruct the
-# forward map).
-_rng = random.Random()
+# When `CLAUDE_REDACT_SEED` is set, every fake is a deterministic function
+# of (seed, entity_type, original_value): we HMAC-SHA256 those together,
+# use the digest to seed a fresh `random.Random` for the call, and run the
+# generator against that RNG. Same secret → same fake across processes,
+# machines, and restarts — which is what lets a model keep referring to
+# "the user's wallet" across sessions without confusion.
+#
+# When the seed is unset we fall back to an OS-seeded module-global RNG
+# (per-process random, no persistence). Convenient for tests / demos.
+#
+# The seed becomes part of the security model: anyone who knows it can mount
+# a known-plaintext attack — guess an original X, derive what fake X would
+# produce, and compare against a fake they observed on the wire. Treat it
+# like an API key (256-bit hex, never committed, never logged).
+_SEED: bytes | None = None
 _seed_env = os.environ.get("CLAUDE_REDACT_SEED")
 if _seed_env:
-    # Allow either an integer or an arbitrary string; `random.Random.seed`
-    # accepts both directly.
-    try:
-        _rng.seed(int(_seed_env))
-    except ValueError:
-        _rng.seed(_seed_env)
+    _SEED = _seed_env.encode()
+
+# Module-global RNG used in the unkeyed fallback path. The keyed path swaps
+# this out per call (safe because the masking pipeline is synchronous within
+# a single request — no awaits between swap and restore).
+_rng = random.Random()
 
 
 # --- Character sets ------------------------------------------------------
@@ -367,6 +376,28 @@ _GENERATORS = {
 
 def generate(entity_type: str, original: str) -> str:
     """Dispatch to the per-type generator. Unknown types fall back to
-    same-length random alnum — safer than returning the original."""
+    same-length random alnum — safer than returning the original.
+
+    In keyed mode (CLAUDE_REDACT_SEED set), the module-global `_rng` is
+    swapped with one seeded from HMAC-SHA256(seed, entity_type \\x00 original)
+    for the duration of the call, so the result is deterministic across
+    processes. The swap is safe because the masking pipeline never `await`s
+    between dispatch and return.
+    """
+    if _SEED is not None:
+        msg = entity_type.encode() + b"\x00" + original.encode()
+        digest = hmac.new(_SEED, msg, hashlib.sha256).digest()
+        keyed = random.Random()
+        keyed.seed(int.from_bytes(digest, "big"))
+        global _rng
+        saved, _rng = _rng, keyed
+        try:
+            return _dispatch(entity_type, original)
+        finally:
+            _rng = saved
+    return _dispatch(entity_type, original)
+
+
+def _dispatch(entity_type: str, original: str) -> str:
     fn = _GENERATORS.get(entity_type)
     return fn(original) if fn else _rand(_ALNUM, len(original))

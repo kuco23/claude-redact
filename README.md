@@ -29,18 +29,23 @@ Detection runs in two passes:
    4.5 / 3.0 bits per char. Catches opaque tokens that don't fit any known
    prefix; rejects ordinary English.
 
-Each detected range is replaced with a freshly-randomized value of the same
-shape (see [generators.py](src/claude_redact/generators.py)) — a `sk-ant-…`
-key becomes another `sk-ant-…` key of the same length, a `0x…` Ethereum
+Each detected range is replaced with a value of the same shape (see
+[generators.py](src/claude_redact/generators.py)) — a `sk-ant-…` key
+becomes another `sk-ant-…` key of the same length, a `0x…` Ethereum
 address becomes another 40-hex Ethereum address, a `4111…` Luhn-valid card
 becomes another Luhn-valid card with the same separator pattern, and so on.
-Fakes are memoized per-process: the same secret always produces the same
-fake within a session, so the model can reason about identity ("the user's
-wallet" vs. "your API key") across turns without ever seeing the real value.
-The reverse map is applied on the way back, scanning for any minted fake
-case-insensitively (Claude sometimes case-normalizes quoted values). SSE
-streaming holds back any tail that is a strict prefix of a known fake so
-chunk-boundary splits never half-flush a fake.
+
+When `CLAUDE_REDACT_SEED` is set, the fake is a deterministic function of
+`(seed, entity_type, original_value)` — HMAC-SHA256 keys a fresh RNG per
+call, and the generator runs against that. Same secret produces the same
+fake across processes, machines, and restarts, so the model keeps seeing
+stable references for "the user's wallet" vs. "your API key" even after
+the proxy is restarted or the conversation resumes days later. Without a
+seed, fakes are random per process (no persistence). The reverse map is
+applied on the way back, scanning for any minted fake case-insensitively
+(Claude sometimes case-normalizes quoted values). SSE streaming holds
+back any tail that is a strict prefix of a known fake so chunk-boundary
+splits never half-flush.
 
 Compared to a tagged-placeholder scheme (`<<MASK:ENTITY:hash>>`), this
 removes the marker that the model could inadvertently break — paraphrasing
@@ -138,6 +143,16 @@ echo "$ANTHROPIC_BASE_URL"               # http://claude-redact:8888
 curl -s http://claude-redact:8888/_health  # {"status":"ok"}
 ```
 
+**Persistent secret bindings.** On first run, [initialize.sh](.devcontainer/initialize.sh)
+mints a 256-bit hex `CLAUDE_REDACT_SEED` into `.devcontainer/.env` and
+[docker-compose.yaml](.devcontainer/docker-compose.yaml) passes it through
+to the sidecar. The proxy then derives every fake deterministically from
+that seed, so the same real secret keeps mapping to the same decoy across
+container rebuilds — Claude won't suddenly see "your API key" change
+identity between sessions. To reset all bindings, delete the
+`CLAUDE_REDACT_SEED=…` line from `.devcontainer/.env` and rebuild the
+container; initialize.sh will mint a fresh seed.
+
 **Rebuild after changing the proxy.** The sidecar runs a *published*
 image; local changes to `src/claude_redact/` don't affect it. To test
 changes against the live container, either rebuild and push the image,
@@ -159,7 +174,7 @@ cp .env.template .env
 | `CLAUDE_REDACT_LOG_LEVEL` | `INFO` | `DEBUG` enables protocol-flow tracing (no plaintext) |
 | `CLAUDE_REDACT_LOG_VALUES` | `0` | `1` logs each fake ↔ plaintext pair via `claude_redact.values` |
 | `CLAUDE_REDACT_AUDIT` | `0` | `1` exposes `GET /_audit/mappings` returning the live map as JSON |
-| `CLAUDE_REDACT_SEED` | _(unset)_ | Seed the fake-generator RNG. Same seed + same input order = identical fakes across restarts. See caveat below |
+| `CLAUDE_REDACT_SEED` | _(unset)_ | Keying material. When set, fakes are a deterministic function of `(seed, entity_type, original)` — same secret always maps to the same fake across processes. **Sensitive: treat as a password / API key.** See caveat below |
 | `CLAUDE_REDACT_HOST` | `127.0.0.1` | Bind address for `python -m claude_redact` |
 | `CLAUDE_REDACT_PORT` | `8888` | Bind port for `python -m claude_redact` |
 | `CLAUDE_REDACT_UPSTREAM` | `https://api.anthropic.com` | Where to forward |
@@ -219,13 +234,19 @@ update the route in [app.py](src/claude_redact/app.py).
   [masking.py](src/claude_redact/masking.py) for a keyed/TTL'd store —
   otherwise session B can fetch fakes minted by session A by guessing
   or echoing them.
-- `CLAUDE_REDACT_SEED` makes the generator RNG reproducible — same seed
-  + same order of inputs ⇒ same fakes across process restarts. Useful
-  for tests, demo recordings, and golden-file fixtures. **Do not set it
-  in any environment where the seed could leak**: an observer who knows
-  the seed AND the order in which secrets reached the proxy can replay
-  the generator and reconstruct the forward map. Default behavior (var
-  unset) uses OS entropy and is the right choice for production.
+- `CLAUDE_REDACT_SEED` is the keying material for the fake generator.
+  When set, the proxy guarantees that the same secret always produces the
+  same fake — across restarts, conversations, and machines. This is what
+  lets a conversation resumed days later still see "the user's wallet"
+  bound to the same decoy the model already learned. Without a seed,
+  bindings only live in process memory and a restart resets every fake.
+  **The seed is sensitive.** Anyone who knows it can mount a known-
+  plaintext attack: for any candidate original X, derive what fake X would
+  produce, compare to a fake they observed on the wire, and confirm X
+  matches. Use a high-entropy value (256-bit hex from `openssl rand -hex
+  32` is the default the devcontainer mints), never commit it, never log
+  it, and rotate it if you suspect exposure (which invalidates every
+  in-memory binding from the previous seed — by design).
 - Un-masking is a case-insensitive exact-string match. If the model
   paraphrases, truncates, or otherwise alters a fake in its response, the
   scanner can't restore the original — the mangled fake leaks through to

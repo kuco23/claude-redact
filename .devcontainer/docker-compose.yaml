@@ -18,4 +18,11 @@ services:
     image: ghcr.io/kuco23/claude-redact:latest
     pull_policy: always
     restart: unless-stopped
+    environment:
+      # initialize.sh mints this on first run and preserves it across
+      # rebuilds, so secret→fake bindings survive container restarts.
+      # Unset on the host ⇒ blank here ⇒ proxy falls back to per-process
+      # random (no persistence). See the README "Caveats" for the
+      # security tradeoff of pinning the seed.
+      CLAUDE_REDACT_SEED: ${CLAUDE_REDACT_SEED:-}
     # healthcheck inherited from the image

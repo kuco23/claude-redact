@@ -5,7 +5,7 @@ import re
 
 import pytest
 
-from claude_redact import masking
+from claude_redact import generators, masking
 from claude_redact.detection import Match, _luhn_ok, _valid_ipv4
 from claude_redact.masking import (
     _dedupe_overlaps,
@@ -129,6 +129,52 @@ def test_fake_never_equals_original():
         ("HASH", "deadbeef" * 5),
     ]:
         assert fake_for(entity, val) != val
+
+
+def test_keyed_determinism_across_fresh_maps():
+    """With a fixed seed (set by conftest), wiping the in-memory maps and
+    re-minting the same secret must produce the same fake. This is the
+    cross-process / cross-restart guarantee — a new process is functionally
+    indistinguishable from "same process, maps cleared"."""
+    first = fake_for("API_KEY", "sk-some-secret-XXXXXXXXXXXXXXXXXXXXXX")
+    masking._forward.clear()
+    masking._reverse.clear()
+    masking._reverse_lower.clear()
+    masking._max_fake_len = 0
+    second = fake_for("API_KEY", "sk-some-secret-XXXXXXXXXXXXXXXXXXXXXX")
+    assert first == second
+
+
+def test_keyed_different_seeds_produce_different_fakes():
+    """Same value + different seed = different fake."""
+    val = "alice@example.com"
+    generators._SEED = b"seed-A"
+    masking._forward.clear()
+    masking._reverse.clear()
+    masking._reverse_lower.clear()
+    fake_a = fake_for("EMAIL_ADDRESS", val)
+    generators._SEED = b"seed-B"
+    masking._forward.clear()
+    masking._reverse.clear()
+    masking._reverse_lower.clear()
+    fake_b = fake_for("EMAIL_ADDRESS", val)
+    assert fake_a != fake_b
+
+
+def test_unkeyed_mode_still_works_and_is_random():
+    """When the seed is unset, the generator falls back to OS-random per
+    process. Re-minting after a map wipe gives a different fake."""
+    generators._SEED = None
+    val = "bob@example.com"
+    first = fake_for("EMAIL_ADDRESS", val)
+    masking._forward.clear()
+    masking._reverse.clear()
+    masking._reverse_lower.clear()
+    second = fake_for("EMAIL_ADDRESS", val)
+    # No determinism guarantee here — two random fakes are overwhelmingly
+    # likely to differ. (If this flakes once in a generation, treat it as
+    # a lottery win and rerun.)
+    assert first != second
 
 
 # --- Splice + dedup ------------------------------------------------------

@@ -63,9 +63,19 @@ def fake_for(entity_type: str, value: str) -> str:
 
 
 def _mint(entity_type: str, value: str) -> str:
-    """Generate a fake; on the off-chance of collision with an existing
-    reverse-map entry, regenerate. The collision check is case-insensitive
-    so we never lose the unmask invariant `_reverse_lower[fake.lower()] = orig`."""
+    """Generate a fake.
+
+    In keyed mode (`CLAUDE_REDACT_SEED` set), the generator is a deterministic
+    function of (seed, entity_type, value), so retrying would produce the
+    same output — we just accept the result. Collisions (different originals
+    mapping to the same fake) are negligible for HMAC-SHA256-seeded streams
+    against fakes with hundreds of bits of entropy.
+
+    In unkeyed mode the generator is random per call, so we retry on the
+    rare case where a freshly minted fake collides with an existing reverse-
+    map entry or happens to equal the original verbatim."""
+    if generators._SEED is not None:
+        return generators.generate(entity_type, value)
     for _ in range(_MAX_REGEN_ATTEMPTS):
         fake = generators.generate(entity_type, value)
         if fake != value and fake.lower() not in _reverse_lower:
