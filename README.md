@@ -159,6 +159,7 @@ cp .env.template .env
 | `CLAUDE_REDACT_LOG_LEVEL` | `INFO` | `DEBUG` enables protocol-flow tracing (no plaintext) |
 | `CLAUDE_REDACT_LOG_VALUES` | `0` | `1` logs each fake ↔ plaintext pair via `claude_redact.values` |
 | `CLAUDE_REDACT_AUDIT` | `0` | `1` exposes `GET /_audit/mappings` returning the live map as JSON |
+| `CLAUDE_REDACT_SEED` | _(unset)_ | Seed the fake-generator RNG. Same seed + same input order = identical fakes across restarts. See caveat below |
 | `CLAUDE_REDACT_HOST` | `127.0.0.1` | Bind address for `python -m claude_redact` |
 | `CLAUDE_REDACT_PORT` | `8888` | Bind port for `python -m claude_redact` |
 | `CLAUDE_REDACT_UPSTREAM` | `https://api.anthropic.com` | Where to forward |
@@ -218,6 +219,13 @@ update the route in [app.py](src/claude_redact/app.py).
   [masking.py](src/claude_redact/masking.py) for a keyed/TTL'd store —
   otherwise session B can fetch fakes minted by session A by guessing
   or echoing them.
+- `CLAUDE_REDACT_SEED` makes the generator RNG reproducible — same seed
+  + same order of inputs ⇒ same fakes across process restarts. Useful
+  for tests, demo recordings, and golden-file fixtures. **Do not set it
+  in any environment where the seed could leak**: an observer who knows
+  the seed AND the order in which secrets reached the proxy can replay
+  the generator and reconstruct the forward map. Default behavior (var
+  unset) uses OS entropy and is the right choice for production.
 - Un-masking is a case-insensitive exact-string match. If the model
   paraphrases, truncates, or otherwise alters a fake in its response, the
   scanner can't restore the original — the mangled fake leaks through to

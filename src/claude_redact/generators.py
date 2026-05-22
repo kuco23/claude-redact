@@ -19,10 +19,29 @@ first separator, randomize the rest at the same length".
 from __future__ import annotations
 
 import ipaddress
+import os
 import random
 import re
 import string
 import uuid
+
+# Module-local RNG. We deliberately don't touch the global `random` state so
+# libraries that depend on it (httpx backoff jitter, etc.) keep their normal
+# OS-seeded behavior. Set `CLAUDE_REDACT_SEED` in the environment to make
+# generator output reproducible across process restarts — useful for tests
+# and demo recordings; do NOT do this in any setting where the seed could
+# leak (a known seed + known input order lets an observer reconstruct the
+# forward map).
+_rng = random.Random()
+_seed_env = os.environ.get("CLAUDE_REDACT_SEED")
+if _seed_env:
+    # Allow either an integer or an arbitrary string; `random.Random.seed`
+    # accepts both directly.
+    try:
+        _rng.seed(int(_seed_env))
+    except ValueError:
+        _rng.seed(_seed_env)
+
 
 # --- Character sets ------------------------------------------------------
 
@@ -37,7 +56,7 @@ _BASE64 = string.ascii_letters + string.digits + "+/"
 
 
 def _rand(alphabet: str, n: int) -> str:
-    return "".join(random.choice(alphabet) for _ in range(n))
+    return "".join(_rng.choice(alphabet) for _ in range(n))
 
 
 # --- Email ---------------------------------------------------------------
@@ -68,9 +87,9 @@ def gen_email(original: str) -> str:
 def gen_ssn(original: str) -> str:
     """Random SSN that passes the area/group/serial constraints in detection.py."""
     # Area: 001-665 or 667-899 (skip 000, 666, 9XX).
-    area = random.choice([n for n in range(1, 900) if n != 666])
-    group = random.randint(1, 99)
-    serial = random.randint(1, 9999)
+    area = _rng.choice([n for n in range(1, 900) if n != 666])
+    group = _rng.randint(1, 99)
+    serial = _rng.randint(1, 9999)
     return f"{area:03d}-{group:02d}-{serial:04d}"
 
 
@@ -82,7 +101,7 @@ def gen_credit_card(original: str) -> str:
     n = len(digits_only)
     if not 13 <= n <= 19:
         n = 16
-    body = [random.randint(0, 9) for _ in range(n - 1)]
+    body = [_rng.randint(0, 9) for _ in range(n - 1)]
     body.append(_luhn_check_digit(body))
     new_digits = "".join(str(d) for d in body)
     # Re-insert the same separators where the original had them.
@@ -122,11 +141,11 @@ def gen_ip(original: str) -> str:
     private blocks are not avoided — the goal is to look real, not be routable."""
     try:
         ipaddress.IPv4Address(original)
-        return ".".join(str(random.randint(1, 254)) for _ in range(4))
+        return ".".join(str(_rng.randint(1, 254)) for _ in range(4))
     except (ValueError, ipaddress.AddressValueError):
         pass
     # IPv6 — generate 8 random hex groups, compress with stdlib for realism.
-    addr = ipaddress.IPv6Address(random.getrandbits(128))
+    addr = ipaddress.IPv6Address(_rng.getrandbits(128))
     return addr.compressed
 
 
@@ -225,7 +244,7 @@ def gen_xrp_address(original: str) -> str:
     # Must contain at least one digit (the XRP detector enforces this).
     body = list(_rand(_BASE58, len(original) - 1))
     if not any(c.isdigit() for c in body):
-        body[random.randint(0, len(body) - 1)] = random.choice("123456789")
+        body[_rng.randint(0, len(body) - 1)] = _rng.choice("123456789")
     return "r" + "".join(body)
 
 
@@ -235,7 +254,7 @@ def gen_trx_address(original: str) -> str:
 
 def gen_xmr_address(original: str) -> str:
     # First char is 4 or 8; second is 0-9 or A-B; rest is base58.
-    return original[0] + random.choice("0123456789AB") + _rand(_BASE58, len(original) - 2)
+    return original[0] + _rng.choice("0123456789AB") + _rand(_BASE58, len(original) - 2)
 
 
 def gen_ada_address(original: str) -> str:
@@ -313,9 +332,9 @@ def gen_phone(original: str) -> str:
     this region-free. Original separators are not preserved — international
     formats vary too much to reconstruct, and the matcher tolerates none."""
     # NPA: 2-9 then two 0-9. NXX: 2-9 then two 0-9. Subscriber: 4 digits.
-    npa = f"{random.randint(2, 9)}{random.randint(0, 9)}{random.randint(0, 9)}"
-    nxx = f"{random.randint(2, 9)}{random.randint(0, 9)}{random.randint(0, 9)}"
-    sub = f"{random.randint(0, 9999):04d}"
+    npa = f"{_rng.randint(2, 9)}{_rng.randint(0, 9)}{_rng.randint(0, 9)}"
+    nxx = f"{_rng.randint(2, 9)}{_rng.randint(0, 9)}{_rng.randint(0, 9)}"
+    sub = f"{_rng.randint(0, 9999):04d}"
     return f"+1{npa}{nxx}{sub}"
 
 
