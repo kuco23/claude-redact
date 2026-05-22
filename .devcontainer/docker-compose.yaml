@@ -1,0 +1,21 @@
+services:
+  dev:
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+    volumes:
+      - ..:/workspaces/${WORKSPACE_NAME}:cached
+      - ${HOME}/.claude:/home/vscode/.claude
+      - ${HOME}/.claude.json:/home/vscode/.claude.json
+    environment:
+      ANTHROPIC_BASE_URL: http://claude-redact:8888
+    command: sleep infinity
+    depends_on:
+      claude-redact:
+        condition: service_healthy
+
+  claude-redact:
+    image: ghcr.io/kuco23/claude-redact:latest
+    pull_policy: always
+    restart: unless-stopped
+    # healthcheck inherited from the image

@@ -2,21 +2,16 @@
 // README at: https://github.com/devcontainers/templates/tree/main/src/docker-existing-dockerfile
 {
 	"name": "Claude Redact",
-    "build": {
-        "dockerfile": "Dockerfile",
-        "context": ".."
-    },
+    "dockerComposeFile": "docker-compose.yaml",
+    "service": "dev",
+    "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
     "features": {
         "ghcr.io/devcontainers/features/node:1": {
             "version": "20"
         }
     },
-    "initializeCommand": "mkdir -p ${localEnv:HOME}/.claude && touch ${localEnv:HOME}/.claude.json",
+    "initializeCommand": ".devcontainer/initialize.sh",
     "postCreateCommand": "npm install -g @anthropic-ai/claude-code && uv sync",
-    "mounts": [
-        "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind",
-        "source=${localEnv:HOME}/.claude.json,target=/home/vscode/.claude.json,type=bind"
-    ],
     "customizations": {
         "vscode": {
             "extensions": [
