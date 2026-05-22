@@ -54,7 +54,8 @@ whitespace breaks the reverse lookup. The tradeoff is the new failure mode:
 if Claude paraphrases or truncates a fake in its reply, the case-insensitive
 exact-match scan won't restore it. In practice models leave realistic-
 looking values intact far more often than they leave structured markers
-intact.
+intact. Neither design defends against an *adversarial* model that
+fragments output to evade the scan — see the caveat on exfiltration below.
 
 ## Install
 
@@ -254,6 +255,25 @@ update the route in [app.py](src/claude_redact/app.py).
   sees gibberish.) The previous tagged-placeholder design had the inverse
   failure mode: the model would sometimes split the marker with whitespace
   and break the round-trip entirely.
+- **The proxy is not an adversarial-model defense.** The threat model is
+  benign Claude + curious upstream operator: the proxy stops secrets from
+  reaching Anthropic's wire and storage, and stops fakes from reaching the
+  user's screen. It does *not* stop a Claude that actively wants to leak.
+  Two channels remain open by construction:
+  - **Fragmenting fakes** to bypass unmask. The scanner does an exact
+    case-insensitive substring lookup against the reverse map. Splitting a
+    fake (`pterc @uxzmpwu.com`, zero-width characters, char-per-line) is
+    enough to defeat the match, so the fake reaches the user verbatim.
+    Useful for *you* — it's how you inspect what fake Claude is holding
+    without enabling the audit endpoint — but it also means an adversarial
+    Claude can emit fakes that the user reads raw.
+  - **Character-at-a-time exfiltration** of originals. Single characters
+    don't match any entity regex, so a Claude that cooperates with the user
+    (or with a prompt-injected instruction) can elicit the original value
+    one char at a time and reconstruct it. Structure-preserving fakes did
+    not close this channel; nothing in a forward-direction redactor can.
+    The mitigation is the trust model — don't pipe secrets through a proxy
+    that you're simultaneously asking the model to defeat.
 - The `x-api-key` header passes through untouched. Headers are never masked,
   only request bodies.
 - Un-masking covers both `text` blocks (so the user reads plaintext in
