@@ -1,4 +1,10 @@
-"""SSE chunk-buffering tests for streaming.py."""
+"""SSE chunk-buffering tests for streaming.py.
+
+The new buffer logic holds back any tail that is a strict prefix of a
+known fake, so a fake that straddles a chunk boundary is never half-
+flushed. There's no `<<…>>` marker any more — the test surface is the
+end-to-end transform.
+"""
 from __future__ import annotations
 
 import json
@@ -6,49 +12,9 @@ from typing import AsyncIterator, cast
 
 import httpx
 
-from claude_redact.masking import placeholder_for
-from claude_redact.streaming import _split_buffer, transform_sse
+from claude_redact.masking import fake_for
+from claude_redact.streaming import transform_sse
 
-
-# --- Pure split_buffer logic --------------------------------------------
-
-def test_split_buffer_complete_placeholder_fully_flushes():
-    buf = "hello <<MASK:API_KEY:0123456789abcdef>> world"
-    flush, hold = _split_buffer(buf)
-    assert flush == buf and hold == ""
-
-
-def test_split_buffer_holds_incomplete_tail():
-    buf = "hello <<MASK:API_KEY:0123"
-    flush, hold = _split_buffer(buf)
-    assert flush == "hello "
-    assert hold == "<<MASK:API_KEY:0123"
-
-
-def test_split_buffer_closing_marker_releases_hold():
-    """A `>>` after the candidate `<<` means the placeholder is complete
-    in this chunk and the whole buffer can flush."""
-    buf = "<<MASK:API_KEY:0123456789abcdef>> trailing"
-    flush, hold = _split_buffer(buf)
-    assert flush == buf and hold == ""
-
-
-def test_split_buffer_no_marker_flushes_all():
-    buf = "plain text with no placeholder markers at all"
-    flush, hold = _split_buffer(buf)
-    assert flush == buf and hold == ""
-
-
-def test_split_buffer_only_considers_recent_window():
-    """A `<<` more than MAX_PLACEHOLDER_LEN chars back can't be a real
-    in-flight placeholder — don't hold the entire stream tail hostage."""
-    buf = "<<bogus" + ("x" * 200)  # the `<<` is way past the window
-    flush, hold = _split_buffer(buf)
-    assert hold == ""
-    assert flush == buf
-
-
-# --- transform_sse end-to-end -------------------------------------------
 
 class _FakeUpstream:
     """Minimal stand-in for httpx.Response with the two methods transform_sse uses."""
@@ -77,25 +43,24 @@ async def _collect(it: AsyncIterator[bytes]) -> str:
 
 
 async def test_transform_unmasks_text_delta():
-    ph = placeholder_for("EMAIL_ADDRESS", "alice@example.com")
+    fake = fake_for("EMAIL_ADDRESS", "dave@example.com")
     upstream = _FakeUpstream([
         _sse({"type": "content_block_delta", "index": 0,
-              "delta": {"type": "text_delta", "text": f"reply to {ph} now"}}),
+              "delta": {"type": "text_delta", "text": f"reply to {fake} now"}}),
         _sse({"type": "content_block_stop", "index": 0}),
     ])
     out = await _collect(transform_sse(cast(httpx.Response, upstream)))
-    assert "alice@example.com" in out
-    assert ph not in out
+    assert "dave@example.com" in out
+    assert fake not in out
     assert upstream.closed
 
 
-async def test_transform_buffers_placeholder_across_chunks():
-    """A placeholder split mid-token across two deltas must round-trip
-    correctly: the trailing fragment is held until the closing `>>`."""
-    ph = placeholder_for("API_KEY", "secret-token-abc")
-    # Split the placeholder roughly in half.
-    half = len(ph) // 2
-    part1, part2 = ph[:half], ph[half:]
+async def test_transform_buffers_fake_across_chunks():
+    """A fake split mid-token across two deltas must round-trip correctly:
+    the trailing fragment is held until the rest arrives."""
+    fake = fake_for("API_KEY", "sk-ant-api03-AAAAbbbbCCCCddddEEEEffffGGGG1234")
+    half = len(fake) // 2
+    part1, part2 = fake[:half], fake[half:]
     upstream = _FakeUpstream([
         _sse({"type": "content_block_delta", "index": 0,
               "delta": {"type": "text_delta", "text": f"prefix {part1}"}}),
@@ -104,24 +69,26 @@ async def test_transform_buffers_placeholder_across_chunks():
         _sse({"type": "content_block_stop", "index": 0}),
     ])
     out = await _collect(transform_sse(cast(httpx.Response, upstream)))
-    # The first chunk should not have leaked the half-placeholder; the
-    # second chunk should contain the unmasked secret.
-    assert "secret-token-abc" in out
-    assert part1 not in out or out.index("secret-token-abc") < out.index(part1 + part2)
+    # Original is restored, and the half-fake never appears alone on the wire.
+    assert "sk-ant-api03-AAAAbbbbCCCCddddEEEEffffGGGG1234" in out
+    # The full fake string should not appear in output (it got unmasked).
+    assert fake not in out
 
 
 async def test_transform_flushes_tail_at_stop():
-    """If a placeholder is still buffered when `content_block_stop` arrives
-    (because no `>>` ever came), the tail is emitted as a synthetic delta
+    """If a fake-prefix is still buffered when `content_block_stop` arrives
+    (because the rest never came), the tail is emitted as a synthetic delta
     so nothing is silently dropped."""
+    fake = fake_for("API_KEY", "sk-ant-api03-XXXXyyyyZZZZwwwwVVVVuuuuTTTT5678")
+    half = len(fake) // 2
     upstream = _FakeUpstream([
         _sse({"type": "content_block_delta", "index": 0,
-              "delta": {"type": "text_delta", "text": "incomplete <<MASK:API_KEY:abc"}}),
+              "delta": {"type": "text_delta", "text": f"incomplete {fake[:half]}"}}),
         _sse({"type": "content_block_stop", "index": 0}),
     ])
     out = await _collect(transform_sse(cast(httpx.Response, upstream)))
     # The held tail must appear before content_block_stop reaches the client.
-    tail_pos = out.find("<<MASK:API_KEY:abc")
+    tail_pos = out.find(fake[:half])
     stop_pos = out.find("content_block_stop")
     assert tail_pos != -1 and stop_pos != -1
     assert tail_pos < stop_pos
@@ -148,3 +115,14 @@ async def test_transform_handles_malformed_data_line():
     out = await _collect(transform_sse(cast(httpx.Response, upstream)))
     assert "not json" in out
     assert "message_stop" in out
+
+
+async def test_transform_does_not_hold_when_no_fakes_minted():
+    """With no entries in the reverse map, every delta flushes immediately."""
+    upstream = _FakeUpstream([
+        _sse({"type": "content_block_delta", "index": 0,
+              "delta": {"type": "text_delta", "text": "plain text"}}),
+        _sse({"type": "content_block_stop", "index": 0}),
+    ])
+    out = await _collect(transform_sse(cast(httpx.Response, upstream)))
+    assert "plain text" in out

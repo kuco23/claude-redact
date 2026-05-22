@@ -1,4 +1,4 @@
-"""mask/unmask round-trip, placeholder format, dedup, opaque mode."""
+"""mask/unmask round-trip, fake-shape invariants, dedup, streaming hold."""
 from __future__ import annotations
 
 import re
@@ -6,12 +6,13 @@ import re
 import pytest
 
 from claude_redact import masking
-from claude_redact.detection import Match
+from claude_redact.detection import Match, _luhn_ok, _valid_ipv4
 from claude_redact.masking import (
-    PLACEHOLDER_RE,
     _dedupe_overlaps,
+    fake_for,
+    flush_hold,
     mask,
-    placeholder_for,
+    scan_with_hold,
     snapshot,
     splice,
     unmask,
@@ -22,72 +23,137 @@ from claude_redact.masking import (
 
 @pytest.mark.parametrize("text", [
     "",
-    "no secrets here",
-    "email alice@example.com",
-    "key sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789",
-    "card 4111-1111-1111-1111 and ssn 123-45-6789",
-    "ETH 0xAbCdEf0123456789AbCdEf0123456789AbCdEf01 followed by text",
+    "no secrets here at all",
+    "email me at jane.doe@example.com today",
+    "API key sk-ant-api03-AAAAbbbbCCCCddddEEEEffffGGGG1234 here",
+    "card 4111-1111-1111-1111 and SSN 123-45-6789 together",
+    "ETH 0xAbCdEf1234567890abcdef1234567890ABCDEF12 followed by text",
+    "multiline\nemail one@two.com\nip 10.20.30.40\nend",
 ])
 def test_round_trip(text):
     assert unmask(mask(text)) == text
 
 
-def test_unmask_unknown_placeholder_passes_through():
-    """unmask() must not raise or strip placeholders it has no mapping for."""
-    foreign = "<<MASK:API_KEY:0123456789abcdef>>"
-    assert unmask(f"hello {foreign} world") == f"hello {foreign} world"
+def test_unmask_unknown_string_passes_through():
+    """unmask() must leave text containing no known fake untouched."""
+    assert unmask("hello world with no fakes") == "hello world with no fakes"
 
 
-# --- Placeholder format --------------------------------------------------
+# --- Fake shape ----------------------------------------------------------
 
-def test_placeholder_shape_default():
-    ph = placeholder_for("API_KEY", "secret-value-1")
-    assert re.fullmatch(r"<<MASK:API_KEY:[0-9a-f]{16}>>", ph)
-
-
-def test_placeholder_shape_opaque(monkeypatch):
-    monkeypatch.setattr(masking, "OPAQUE", True)
-    ph = placeholder_for("API_KEY", "secret-value-opaque")
-    assert re.fullmatch(r"<<MASK:[0-9a-f]{16}>>", ph)
+def test_email_fake_is_an_email():
+    fake = fake_for("EMAIL_ADDRESS", "alice@example.com")
+    assert "@" in fake and "." in fake.split("@", 1)[1]
+    assert fake != "alice@example.com"
 
 
-def test_placeholder_deterministic_for_same_value():
-    a = placeholder_for("API_KEY", "shared-secret")
-    b = placeholder_for("API_KEY", "shared-secret")
+def test_ipv4_fake_is_valid_ipv4():
+    fake = fake_for("IP_ADDRESS", "192.168.1.42")
+    assert _valid_ipv4(fake)
+    assert fake.count(".") == 3
+    assert fake != "192.168.1.42"
+
+
+def test_credit_card_fake_is_luhn_valid():
+    fake = fake_for("CREDIT_CARD", "4111111111111111")
+    assert _luhn_ok(fake)
+    assert fake != "4111111111111111"
+
+
+def test_credit_card_fake_preserves_separator_pattern():
+    """A dashed CC input gets a dashed CC fake (and stays Luhn-valid)."""
+    fake = fake_for("CREDIT_CARD", "4111-1111-1111-1111")
+    assert fake.count("-") == 3
+    assert _luhn_ok(fake)
+
+
+def test_ssn_fake_passes_ssn_constraints():
+    """Area not 000/666/9XX; group not 00; serial not 0000."""
+    for orig in ["123-45-6789", "555-12-3456"]:
+        fake = fake_for("US_SSN", orig)
+        m = re.fullmatch(r"(\d{3})-(\d{2})-(\d{4})", fake)
+        assert m
+        area, group, serial = m.groups()
+        assert area != "000" and area != "666" and not area.startswith("9")
+        assert group != "00"
+        assert serial != "0000"
+
+
+def test_uuid_fake_is_uuid_shape():
+    fake = fake_for("UUID", "550e8400-e29b-41d4-a716-446655440000")
+    assert re.fullmatch(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", fake)
+
+
+def test_eth_fake_keeps_0x_prefix():
+    fake = fake_for("ETH_ADDRESS", "0x" + "a" * 40)
+    assert fake.startswith("0x")
+    assert re.fullmatch(r"0x[0-9a-fA-F]{40}", fake)
+
+
+def test_api_key_fake_keeps_provider_prefix():
+    """The generator sniffs the provider prefix so the fake re-matches the
+    same recognizer (and Claude still gets a hint that it's an Anthropic key,
+    not a Stripe one)."""
+    orig = "sk-ant-api03-AAAAbbbbCCCCddddEEEEffffGGGGhhhh1234"
+    fake = fake_for("API_KEY", orig)
+    assert fake.startswith("sk-ant-")
+    assert len(fake) == len(orig)
+
+
+def test_hex_fake_matches_length():
+    orig = "abcdef" * 6 + "1234"  # 40 hex chars
+    fake = fake_for("HASH", orig)
+    assert len(fake) == len(orig)
+    assert re.fullmatch(r"[0-9a-f]{40}", fake)
+
+
+def test_fake_deterministic_for_same_value():
+    a = fake_for("API_KEY", "sk-shared-secret-AAAAAAAAAAAAAAAA")
+    b = fake_for("API_KEY", "sk-shared-secret-AAAAAAAAAAAAAAAA")
     assert a == b
 
 
-def test_placeholder_differs_for_different_values():
-    a = placeholder_for("API_KEY", "one")
-    b = placeholder_for("API_KEY", "two")
+def test_fake_differs_for_different_values():
+    a = fake_for("API_KEY", "sk-one-AAAAAAAAAAAAAAAAAAAAAAAA")
+    b = fake_for("API_KEY", "sk-two-AAAAAAAAAAAAAAAAAAAAAAAA")
     assert a != b
 
 
-def test_placeholder_re_matches_both_lengths():
-    # New 16-hex, legacy 10-hex, with and without entity-type segment.
-    samples = [
-        "<<MASK:API_KEY:0123456789abcdef>>",
-        "<<MASK:0123456789abcdef>>",
-        "<<MASK:API_KEY:0123456789>>",
-        "<<MASK:0123456789>>",
-    ]
-    for s in samples:
-        assert PLACEHOLDER_RE.fullmatch(s), s
+def test_fake_never_equals_original():
+    """The generator never returns the input verbatim — that would mean the
+    secret isn't actually being redacted."""
+    for entity, val in [
+        ("EMAIL_ADDRESS", "user@example.com"),
+        ("IP_ADDRESS", "192.168.1.1"),
+        ("UUID", "550e8400-e29b-41d4-a716-446655440000"),
+        ("HASH", "deadbeef" * 5),
+    ]:
+        assert fake_for(entity, val) != val
 
 
 # --- Splice + dedup ------------------------------------------------------
 
-def test_splice_replaces_right_to_left():
+def test_splice_replaces_matches():
     text = "ab CDEF gh IJKL mn"
-    matches = [Match(3, 7, "X"), Match(11, 15, "Y")]
-    out = splice(text, matches)
-    # Both ranges replaced; the literal characters between/around are preserved.
-    assert "ab " in out and " gh " in out and " mn" in out
+    # Use entity types that have generators; values are just the matched substrings.
+    matches = [Match(3, 7, "HEX_SECRET"), Match(11, 15, "HEX_SECRET")]
+    out, ranges = splice(text, matches)
     assert "CDEF" not in out and "IJKL" not in out
+    assert len(ranges) == 2
+
+
+def test_splice_returns_post_substitution_ranges():
+    """The entropy pass needs the ranges in the post-splice text, not in the
+    input — fakes can change length."""
+    text = "X" * 10  # placeholder, won't actually match
+    matches = [Match(2, 5, "HEX_SECRET")]
+    out, ranges = splice(text, matches)
+    s, e = ranges[0]
+    # The range in the new text points at the inserted fake.
+    assert out[s:e] == fake_for("HEX_SECRET", text[2:5])
 
 
 def test_dedupe_longest_wins_on_overlap():
-    # A long match starting at the same offset as a short one — longest stays.
     long = Match(0, 10, "LONG")
     short = Match(0, 5, "SHORT")
     kept = _dedupe_overlaps([short, long])
@@ -96,7 +162,7 @@ def test_dedupe_longest_wins_on_overlap():
 
 def test_dedupe_keeps_disjoint_ranges():
     a = Match(0, 5, "A")
-    b = Match(5, 10, "B")   # touching but not overlapping
+    b = Match(5, 10, "B")
     c = Match(11, 15, "C")
     kept = _dedupe_overlaps([a, b, c])
     assert kept == [a, b, c]
@@ -111,29 +177,35 @@ def test_dedupe_drops_inner_overlap():
 
 # --- Pipeline integration -----------------------------------------------
 
-def test_mask_entropy_pass_skips_placeholders():
-    """The entropy scanner runs after the regex pass; it must not re-mask
-    the hex inside an existing `<<MASK:…:hex>>` placeholder."""
-    text = "api key sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789 done"
+def test_mask_entropy_pass_skips_just_minted_fakes():
+    """A HEX_SECRET-shaped fake minted in pass 1 looks like a HEX_SECRET to
+    the entropy scanner — pass 2 must skip the ranges it just produced or
+    the substitution would be unstable."""
+    text = "api key abcdef1234567890abcdef1234567890abcdef done"
     masked = mask(text)
-    # Exactly one placeholder (the API key), no nested HEX_SECRET re-mask.
-    assert len(PLACEHOLDER_RE.findall(masked)) == 1
+    # Re-running mask on the result should change nothing.
+    assert mask(masked) == masked
 
 
-def test_mask_is_idempotent_on_known_values():
-    """Masking already-masked text should not double-wrap (the placeholder
-    body is itself hex+colons and the entropy scanner would otherwise grab
-    parts of it)."""
-    text = "ETH 0xAbCdEf0123456789AbCdEf0123456789AbCdEf01"
+def test_mask_is_idempotent_on_already_masked_text():
+    text = "ETH 0xAbCdEf1234567890abcdef1234567890ABCDEF12 and email a@b.com"
     once = mask(text)
     twice = mask(once)
     assert once == twice
 
 
+def test_unmask_is_case_insensitive():
+    """Claude sometimes case-normalizes quoted values. The unmask scan should
+    still restore the original even if the fake comes back uppercased."""
+    fake = fake_for("EMAIL_ADDRESS", "alice@example.com")
+    out = unmask(f"contact {fake.upper()} please")
+    assert "alice@example.com" in out
+
+
 def test_snapshot_returns_live_pairs():
-    placeholder_for("API_KEY", "abc123")
+    fake_for("API_KEY", "sk-some-secret-AAAAAAAAAAAAAAAAAAAAAA")
     snap = snapshot()
-    assert any(v == "abc123" for v in snap.values())
+    assert any(v == "sk-some-secret-AAAAAAAAAAAAAAAAAAAAAA" for v in snap.values())
     # snapshot is a copy — mutating it must not affect the live map.
     snap.clear()
     assert snapshot() != {}
@@ -144,8 +216,56 @@ def test_mask_empty_string():
     assert unmask("") == ""
 
 
-def test_unmask_short_circuits_when_no_marker():
-    """unmask returns the input unchanged when '<<MASK:' isn't present —
-    cheap path that should not touch the regex."""
-    s = "plain text with no placeholders"
-    assert unmask(s) is s
+def test_unmask_short_circuits_on_empty_reverse_map():
+    """With no fakes minted, unmask is a no-op and returns the input by value
+    equality (no full scan needed)."""
+    masking._reverse.clear()
+    masking._reverse_lower.clear()
+    s = "plain text with no fakes"
+    assert unmask(s) == s
+
+
+# --- Streaming-aware scan -----------------------------------------------
+
+def test_scan_with_hold_no_fakes_flushes_everything():
+    """With an empty reverse map, scan_with_hold returns everything in flush."""
+    flushed, held = scan_with_hold("just some text")
+    assert flushed == "just some text"
+    assert held == ""
+
+
+def test_scan_with_hold_complete_fake_in_buffer_unmasks():
+    fake = fake_for("EMAIL_ADDRESS", "alice@example.com")
+    flushed, held = scan_with_hold(f"hi {fake} bye")
+    assert "alice@example.com" in flushed
+    assert held == ""
+
+
+def test_scan_with_hold_partial_fake_tail_held():
+    """If the tail of the buffer is a strict prefix of a known fake, hold it."""
+    fake = fake_for("EMAIL_ADDRESS", "alice@example.com")
+    # Cut the fake roughly in half — the tail half should be held.
+    half = len(fake) // 2
+    flushed, held = scan_with_hold(f"prefix {fake[:half]}")
+    # The held portion is exactly what was the tail of the input.
+    assert held == fake[:half]
+    assert "alice@example.com" not in flushed
+
+
+def test_scan_with_hold_then_completion_unmasks():
+    """Two-step: hold a partial fake, then feed the rest — the combined
+    buffer must round-trip."""
+    fake = fake_for("EMAIL_ADDRESS", "bob@example.com")
+    half = len(fake) // 2
+    flushed1, held = scan_with_hold(f"hi {fake[:half]}")
+    flushed2, held2 = scan_with_hold(held + fake[half:] + " bye")
+    assert "bob@example.com" in (flushed1 + flushed2)
+    assert held2 == ""
+
+
+def test_flush_hold_emits_verbatim_on_orphan_tail():
+    """If the stream ends mid-fake-prefix, flush_hold returns the tail
+    unchanged (no fake to substitute since it never finished arriving)."""
+    fake = fake_for("EMAIL_ADDRESS", "carol@example.com")
+    half = len(fake) // 2
+    assert flush_hold(fake[:half]) == fake[:half]
