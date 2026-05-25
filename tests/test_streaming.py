@@ -126,3 +126,110 @@ async def test_transform_does_not_hold_when_no_fakes_minted():
     ])
     out = await _collect(transform_sse(cast(httpx.Response, upstream)))
     assert "plain text" in out
+
+
+# --- SSE framing regression -----------------------------------------------
+
+def _parse_sse_events(text: str) -> list[tuple[str, object]]:
+    """Walk an SSE-formatted byte stream into (event_name, parsed_data) pairs.
+
+    Per the SSE spec, `event:` sets the event name for the upcoming `data:`
+    payload and the name resets to "message" after each blank-line-terminated
+    event. We need this here because the existing tests only feed bare
+    `data:` lines — they don't exercise interactions with `event:` headers,
+    which is where the streaming transform's flush-at-stop logic breaks
+    framing when the synthetic delta is injected between an `event:` line
+    and its own `data:`.
+    """
+    events: list[tuple[str, object]] = []
+    event_name = "message"
+    data_lines: list[str] = []
+
+    def flush():
+        nonlocal event_name, data_lines
+        if not data_lines:
+            return
+        payload = "\n".join(data_lines)
+        try:
+            parsed: object = json.loads(payload)
+        except json.JSONDecodeError:
+            parsed = payload
+        events.append((event_name, parsed))
+        event_name = "message"
+        data_lines = []
+
+    for line in text.split("\n"):
+        if line.startswith("event: "):
+            event_name = line[len("event: "):].strip()
+        elif line.startswith("data: "):
+            data_lines.append(line[len("data: "):])
+        elif line == "":
+            flush()
+    flush()
+    return events
+
+
+async def test_transform_preserves_event_headers_when_flushing_held_tail():
+    """Reproduces the 'response disappears' bug.
+
+    When the entire `text_delta` payload is a strict prefix of a known fake,
+    `scan_with_hold` swallows it all and the synthetic flush event has to
+    fire at `content_block_stop` time to deliver the held tail. The current
+    implementation yields the synthetic `data:` line *between* the upstream's
+    `event: content_block_stop` header and that header's own `data:` line,
+    so an SSE parser pairs:
+
+      - `event: content_block_stop`  with  `data: {type: content_block_delta}`
+      - default `event: message`     with  `data: {type: content_block_stop}`
+
+    Both are framing violations. Clients that dispatch by event name (the
+    Anthropic SDK among them) drop the synthetic delta and the response
+    appears empty to the user.
+
+    This test asserts that every event's header name matches the `type`
+    field in its data payload. It is expected to FAIL on the current
+    streaming.py and pass once the synthetic event is emitted with its own
+    `event: content_block_delta` header and the stop event's header is
+    re-emitted after it.
+    """
+    fake = fake_for("HASH", "abcdef" * 6 + "1234")  # 40-hex fake
+    first_char = fake[0]
+    # Realistic upstream framing: each event has its own `event:` line, then
+    # `data:`, then a blank line. (Existing tests omit `event:` lines so they
+    # don't exercise this interaction.)
+    upstream = _FakeUpstream([
+        "event: content_block_delta",
+        _sse({"type": "content_block_delta", "index": 0,
+              "delta": {"type": "text_delta", "text": first_char}}),
+        "",
+        "event: content_block_stop",
+        _sse({"type": "content_block_stop", "index": 0}),
+        "",
+    ])
+    out = await _collect(transform_sse(cast(httpx.Response, upstream)))
+    events = _parse_sse_events(out)
+
+    # Framing check: every event header name must match its data payload type.
+    mismatches = [
+        (name, data.get("type"))
+        for name, data in events
+        if isinstance(data, dict) and name != data.get("type")
+    ]
+    assert not mismatches, (
+        f"SSE event header/payload type mismatches: {mismatches}\n"
+        f"Raw output:\n{out}"
+    )
+
+    # Delivery check: the held character must actually reach the client via
+    # some content_block_delta event's text payload.
+    delivered = "".join(
+        data["delta"].get("text", "")
+        for _, data in events
+        if isinstance(data, dict)
+        and data.get("type") == "content_block_delta"
+        and isinstance(data.get("delta"), dict)
+    )
+    assert first_char in delivered, (
+        f"held char {first_char!r} never delivered; concatenated delta text "
+        f"was {delivered!r}\nRaw output:\n{out}"
+    )
