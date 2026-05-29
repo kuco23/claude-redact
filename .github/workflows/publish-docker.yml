@@ -15,7 +15,29 @@ permissions:
   packages: write  # required to push to ghcr.io
 
 jobs:
+  # Gate the publish on a green pytest run. A bad image is worse than a
+  # delayed release, and a tag can only be cut once.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          # Matches the floor in pyproject.toml; uv will fetch a standalone
+          # build if the runner image doesn't already have 3.13.
+          python-version: "3.13"
+
+      - name: Install dependencies (locked)
+        run: uv sync --frozen
+
+      - name: Run tests
+        run: uv run pytest
+
   publish:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
