@@ -25,4 +25,5 @@ services:
       # random (no persistence). See the README "Caveats" for the
       # security tradeoff of pinning the seed.
       CLAUDE_REDACT_SEED: ${CLAUDE_REDACT_SEED:-}
+      CLAUDE_REDACT_AUDIT: 1
     # healthcheck inherited from the image
