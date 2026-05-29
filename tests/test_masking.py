@@ -90,6 +90,33 @@ def test_eth_fake_keeps_0x_prefix():
     assert re.fullmatch(r"0x[0-9a-fA-F]{40}", fake)
 
 
+def test_hex_fake_preserves_0x_prefix():
+    """0x-prefixed digests (MD5 / SHA-512 in 0x form, etc.) feed into the
+    HASH entity, so gen_hex must preserve the prefix instead of producing
+    a 34/130-char raw hex run that no longer round-trips by shape."""
+    for orig in [
+        "0x9e107d9d372bb6826bd81d3542a419d6",  # 0x + 32 hex
+        "0x" + "abcdef0123456789" * 8,         # 0x + 128 hex
+    ]:
+        fake = fake_for("HASH", orig)
+        assert fake.startswith("0x"), f"lost 0x prefix on {orig!r} -> {fake!r}"
+        assert len(fake) == len(orig)
+        assert re.fullmatch(r"0x[0-9a-fA-F]+", fake)
+        assert fake != orig
+
+
+def test_mask_catches_0x_prefixed_md5_and_sha512():
+    """End-to-end: 0x-prefixed digests in surrounding text get redacted and
+    round-trip cleanly."""
+    md5 = "0x9e107d9d372bb6826bd81d3542a419d6"
+    sha512 = "0x" + "abcdef0123456789" * 8
+    text = f'digest {md5} signature {sha512} done'
+    masked = mask(text)
+    assert md5 not in masked
+    assert sha512 not in masked
+    assert unmask(masked) == text
+
+
 def test_eth_private_key_fake_is_0x_plus_64_hex():
     """Regression: 0x + 64 hex (canonical secp256k1 / EVM private key) is its
     own entity. Neither ETH_ADDRESS (only 40 hex) nor HASH (`\\b`-anchored,

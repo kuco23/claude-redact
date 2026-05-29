@@ -106,6 +106,14 @@ PATTERNS: list[tuple[str, str, Validator | None]] = [
     ("HASH", r"\b[a-f0-9]{40}\b", None),
     ("HASH", r"\b[a-f0-9]{64}\b", None),
     ("HASH", r"\b[a-f0-9]{128}\b", None),
+    # Same digests written in `0x` wire form. The `\b` in the bare-hex
+    # variants can't anchor between `0x` and the hex body (both are word
+    # chars), so a 0x-prefixed digest slips past — same root cause as the
+    # ETH_PRIVATE_KEY gap. 0x + 40 is owned by ETH_ADDRESS and 0x + 64 by
+    # ETH_PRIVATE_KEY; this entry covers the 32 (MD5) and 128 (SHA-512)
+    # lengths plus any other 0x-prefixed digest the caller emits.
+    ("HASH", r"\b0x[a-fA-F0-9]{32}\b", None),
+    ("HASH", r"\b0x[a-fA-F0-9]{128}\b", None),
 
     # Ethereum (and EVM-compatible chains): 0x + 40 hex.
     ("ETH_ADDRESS", r"\b0x[a-fA-F0-9]{40}\b", None),

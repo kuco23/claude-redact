@@ -97,6 +97,10 @@ def test_credit_card_no_trailing_space_eaten():
     ("AKIAIOSFODNN7EXAMPLE", "API_KEY"),
     ("0xAbCdEf1234567890abcdef1234567890ABCDEF12", "ETH_ADDRESS"),
     ("0x6fbbd4885827f6174c2b20176bca48099e23d6adbea7c05e6b9bf133041ef537", "ETH_PRIVATE_KEY"),
+    # 0x-prefixed digests at the other HASH lengths (32 = MD5, 128 = SHA-512).
+    # The 0x + 40 case is owned by ETH_ADDRESS; 0x + 64 by ETH_PRIVATE_KEY.
+    ("0x9e107d9d372bb6826bd81d3542a419d6", "HASH"),
+    ("0x" + "abcdef0123456789" * 8, "HASH"),
     ("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa", "BTC_ADDRESS"),
     ("bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq", "BTC_ADDRESS"),
 ])

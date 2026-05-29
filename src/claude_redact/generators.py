@@ -207,7 +207,11 @@ def gen_pem_private_key(original: str) -> str:
 # --- Hashes / hex / base64 -----------------------------------------------
 
 def gen_hex(original: str) -> str:
-    """Lowercase hex of the same length."""
+    """Lowercase hex of the same length. Preserves a leading `0x` so
+    digests emitted in EVM/wire form keep their prefix in the fake (and
+    the fake re-matches the same recognizer on a second pass)."""
+    if original[:2].lower() == "0x":
+        return original[:2] + _rand(_HEX, len(original) - 2)
     return _rand(_HEX, len(original))
 
 
