@@ -65,8 +65,8 @@ def test_ssn_validation(ssn, should_match):
 
 
 @pytest.mark.parametrize("card", [
-    "4111111111111111",       # Visa test
-    "4111 1111 1111 1111",    # space-separated
+    "4242424242424242",       # Visa test
+    "4242 4242 4242 4242",    # space-separated
     "5555555555554444",       # Mastercard test
 ])
 def test_credit_card_luhn_valid(card):
@@ -81,10 +81,10 @@ def test_credit_card_luhn_invalid():
 def test_credit_card_no_trailing_space_eaten():
     """Regression: an earlier regex `{13,19}\\b` greedily consumed the trailing
     separator, leaving placeholders like `<<MASK:CC>>and` with no whitespace."""
-    matches = find_entities("Card 4111111111111111 done")
+    matches = find_entities("Card 4242424242424242 done")
     cc = [m for m in matches if m.entity_type == "CREDIT_CARD"]
     assert len(cc) == 1
-    assert cc[0].end == len("Card 4111111111111111")  # ends on the last digit
+    assert cc[0].end == len("Card 4242424242424242")  # ends on the last digit
 
 
 # --- Custom patterns -----------------------------------------------------
@@ -92,21 +92,21 @@ def test_credit_card_no_trailing_space_eaten():
 @pytest.mark.parametrize("token,entity", [
     ("550e8400-e29b-41d4-a716-446655440000", "UUID"),
     ("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c", "JWT"),
-    ("sk-ant-api03-AAAAbbbbCCCCddddEEEEffffGGGGhhhh1234", "API_KEY"),
+    ("sk-ant-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "API_KEY"),
     ("github_pat_" + "A" * 82, "API_KEY"),
     ("AKIAIOSFODNN7EXAMPLE", "API_KEY"),
     ("0xAbCdEf1234567890abcdef1234567890ABCDEF12", "ETH_ADDRESS"),
-    ("0x6fbbd4885827f6174c2b20176bca48099e23d6adbea7c05e6b9bf133041ef537", "ETH_PRIVATE_KEY"),
+    ("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "ETH_PRIVATE_KEY"),
     # 0x-prefixed digests at the other HASH lengths (32 = MD5, 128 = SHA-512).
     # The 0x + 40 case is owned by ETH_ADDRESS; 0x + 64 by ETH_PRIVATE_KEY.
     ("0x9e107d9d372bb6826bd81d3542a419d6", "HASH"),
     ("0x" + "abcdef0123456789" * 8, "HASH"),
     # Telegram bot token: 8-12 digits, colon, 35-char URL-safe base64 body.
-    ("8560628413:AAGO77U8IZWl35f-ghqq82bRml5kCjhbLU8", "API_KEY"),
+    ("1234567890:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "API_KEY"),
     # XRP family seed: secp256k1 (`s` + base58) and Ed25519 (`sEd` + base58).
     # Length varies slightly (28-31) depending on the encoded leading bytes.
     ("snoPBrXtMeMyMHUVTgbuqAfg1SUTb", "XRP_SEED"),
-    ("sEdSKaCy2JT7JaM7v95H9SxkhP9wS2r", "XRP_SEED"),
+    ("sEdTESTaabbccddeeffgghhiijjkkmm1", "XRP_SEED"),
     # BIP39 12-word mnemonic — every word must be in the canonical English list.
     # (`legal winner thank …` is a published BIP39 test vector.)
     ("legal winner thank year wave sausage worth useful legal winner thank yellow", "BIP39_MNEMONIC"),
@@ -165,7 +165,7 @@ def test_phone_number_international():
 # --- Validators ----------------------------------------------------------
 
 @pytest.mark.parametrize("digits,ok", [
-    ("4111111111111111", True),
+    ("4242424242424242", True),
     ("5555555555554444", True),
     ("4111111111111112", False),
     ("0", False),                          # too short
@@ -176,8 +176,8 @@ def test_luhn(digits, ok):
 
 
 def test_luhn_strips_separators():
-    assert _luhn_ok("4111 1111 1111 1111") is True
-    assert _luhn_ok("4111-1111-1111-1111") is True
+    assert _luhn_ok("4242 4242 4242 4242") is True
+    assert _luhn_ok("4242-4242-4242-4242") is True
 
 
 @pytest.mark.parametrize("ip,ok", [
@@ -211,7 +211,10 @@ def test_entropy_catches_url_safe_base64_with_dash_or_underscore():
     Telegram bot bodies, many provider keys) use this variant — the
     standard-alphabet entropy regex used to miss them entirely because
     the first `-` or `_` would terminate the candidate run."""
-    secret = "AAGO77U8IZWl35f-ghqq82bRml5kCjhbLU8"  # 35-char URL-safe body
+    # Synthetic alphabet-spanning value: every char unique, contains `-` and
+    # `_` (the URL-safe-specific chars), entropy well above the 4.5 bits/char
+    # threshold. Obviously not anyone's real token.
+    secret = "Abcdefghijklmnopqrstuvwxyz0123456789_-XYZ"
     matches = find_high_entropy(f"token {secret}")
     assert any(m.entity_type == "BASE64_SECRET" for m in matches), (
         f"URL-safe token {secret!r} not caught by entropy pass"

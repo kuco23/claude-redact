@@ -58,7 +58,7 @@ async def test_transform_unmasks_text_delta():
 async def test_transform_buffers_fake_across_chunks():
     """A fake split mid-token across two deltas must round-trip correctly:
     the trailing fragment is held until the rest arrives."""
-    fake = fake_for("API_KEY", "sk-ant-api03-AAAAbbbbCCCCddddEEEEffffGGGG1234")
+    fake = fake_for("API_KEY", "sk-ant-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
     half = len(fake) // 2
     part1, part2 = fake[:half], fake[half:]
     upstream = _FakeUpstream([
@@ -70,7 +70,7 @@ async def test_transform_buffers_fake_across_chunks():
     ])
     out = await _collect(transform_sse(cast(httpx.Response, upstream)))
     # Original is restored, and the half-fake never appears alone on the wire.
-    assert "sk-ant-api03-AAAAbbbbCCCCddddEEEEffffGGGG1234" in out
+    assert "sk-ant-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" in out
     # The full fake string should not appear in output (it got unmasked).
     assert fake not in out
 
@@ -79,7 +79,7 @@ async def test_transform_flushes_tail_at_stop():
     """If a fake-prefix is still buffered when `content_block_stop` arrives
     (because the rest never came), the tail is emitted as a synthetic delta
     so nothing is silently dropped."""
-    fake = fake_for("API_KEY", "sk-ant-api03-XXXXyyyyZZZZwwwwVVVVuuuuTTTT5678")
+    fake = fake_for("API_KEY", "sk-ant-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
     half = len(fake) // 2
     upstream = _FakeUpstream([
         _sse({"type": "content_block_delta", "index": 0,

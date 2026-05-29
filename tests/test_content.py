@@ -6,10 +6,10 @@ from claude_redact.masking import fake_for
 
 
 def test_mask_request_string_system_prompt():
-    body = {"system": "Use the key sk-ant-api03-AAAAbbbbCCCCddddEEEEffffGGGG1234"}
+    body = {"system": "Use the key sk-ant-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}
     mask_request(body)
     # Original key must be gone; replaced by a same-prefix fake of the same shape.
-    assert "sk-ant-api03-AAAAbbbbCCCCddddEEEEffffGGGG1234" not in body["system"]
+    assert "sk-ant-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" not in body["system"]
     assert "sk-ant-" in body["system"]
 
 
@@ -36,14 +36,14 @@ def test_mask_request_walks_tool_result_nested():
         "messages": [
             {"role": "user", "content": [
                 {"type": "tool_result", "content": [
-                    {"type": "text", "text": "got key sk-ant-api03-ZZZZyyyyXXXXwwwwVVVVuuuuTTTT9999"},
+                    {"type": "text", "text": "got key sk-ant-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
                 ]},
             ]},
         ],
     }
     mask_request(body)
     inner = body["messages"][0]["content"][0]["content"][0]
-    assert "sk-ant-api03-ZZZZyyyyXXXXwwwwVVVVuuuuTTTT9999" not in inner["text"]
+    assert "sk-ant-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" not in inner["text"]
 
 
 def test_mask_request_string_content_in_message():

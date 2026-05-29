@@ -25,8 +25,8 @@ from claude_redact.masking import (
     "",
     "no secrets here at all",
     "email me at jane.doe@example.com today",
-    "API key sk-ant-api03-AAAAbbbbCCCCddddEEEEffffGGGG1234 here",
-    "card 4111-1111-1111-1111 and SSN 123-45-6789 together",
+    "API key sk-ant-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA here",
+    "card 4242-4242-4242-4242 and SSN 123-45-6789 together",
     "ETH 0xAbCdEf1234567890abcdef1234567890ABCDEF12 followed by text",
     "multiline\nemail one@two.com\nip 10.20.30.40\nend",
 ])
@@ -55,14 +55,14 @@ def test_ipv4_fake_is_valid_ipv4():
 
 
 def test_credit_card_fake_is_luhn_valid():
-    fake = fake_for("CREDIT_CARD", "4111111111111111")
+    fake = fake_for("CREDIT_CARD", "4242424242424242")
     assert _luhn_ok(fake)
-    assert fake != "4111111111111111"
+    assert fake != "4242424242424242"
 
 
 def test_credit_card_fake_preserves_separator_pattern():
     """A dashed CC input gets a dashed CC fake (and stays Luhn-valid)."""
-    fake = fake_for("CREDIT_CARD", "4111-1111-1111-1111")
+    fake = fake_for("CREDIT_CARD", "4242-4242-4242-4242")
     assert fake.count("-") == 3
     assert _luhn_ok(fake)
 
@@ -123,7 +123,7 @@ def test_eth_private_key_fake_is_0x_plus_64_hex():
     can't latch past the `0x` prefix since `x` is a word char) caught it
     before, so every EVM private key in a JSON blob passed through
     unmasked."""
-    orig = "0x6fbbd4885827f6174c2b20176bca48099e23d6adbea7c05e6b9bf133041ef537"
+    orig = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     fake = fake_for("ETH_PRIVATE_KEY", orig)
     assert fake.startswith("0x")
     assert re.fullmatch(r"0x[0-9a-fA-F]{64}", fake)
@@ -135,10 +135,10 @@ def test_mask_catches_0x_prefixed_private_key_in_context():
     and the round trip must restore the original."""
     text = (
         '"private_key": '
-        '"0x6fbbd4885827f6174c2b20176bca48099e23d6adbea7c05e6b9bf133041ef537"'
+        '"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"'
     )
     masked = mask(text)
-    assert "0x6fbbd4885827f6174c2b20176bca48099e23d6adbea7c05e6b9bf133041ef537" not in masked
+    assert "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" not in masked
     assert unmask(masked) == text
 
 
@@ -148,7 +148,7 @@ def test_xrp_seed_fake_preserves_prefix_and_alphabet():
     and use only base58 chars (excludes 0, O, I, l)."""
     for orig in [
         "snoPBrXtMeMyMHUVTgbuqAfg1SUTb",       # secp256k1
-        "sEdSKaCy2JT7JaM7v95H9SxkhP9wS2r",     # Ed25519
+        "sEdTESTaabbccddeeffgghhiijjkkmm1",     # Ed25519
     ]:
         fake = fake_for("XRP_SEED", orig)
         assert len(fake) == len(orig)
@@ -177,7 +177,7 @@ def test_telegram_bot_token_fake_preserves_id_colon_body_shape():
     """A Telegram bot token (`{id}:{body}`) needs both halves redacted
     *and* the structural separator preserved so the fake still matches
     the recognizer on a second pass (idempotence)."""
-    orig = "8560628413:AAGO77U8IZWl35f-ghqq82bRml5kCjhbLU8"
+    orig = "1234567890:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
     fake = fake_for("API_KEY", orig)
     assert ":" in fake
     head, _, tail = fake.partition(":")
@@ -186,15 +186,15 @@ def test_telegram_bot_token_fake_preserves_id_colon_body_shape():
     assert re.fullmatch(r"[A-Za-z0-9_\-]+", tail)
     assert fake != orig
     # Neither half leaks the original.
-    assert head != "8560628413"
-    assert tail != "AAGO77U8IZWl35f-ghqq82bRml5kCjhbLU8"
+    assert head != "1234567890"
+    assert tail != "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 
 
 def test_api_key_fake_keeps_provider_prefix():
     """The generator sniffs the provider prefix so the fake re-matches the
     same recognizer (and Claude still gets a hint that it's an Anthropic key,
     not a Stripe one)."""
-    orig = "sk-ant-api03-AAAAbbbbCCCCddddEEEEffffGGGGhhhh1234"
+    orig = "sk-ant-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
     fake = fake_for("API_KEY", orig)
     assert fake.startswith("sk-ant-")
     assert len(fake) == len(orig)
