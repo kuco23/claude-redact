@@ -267,6 +267,17 @@ def gen_xrp_address(original: str) -> str:
     return "r" + "".join(body)
 
 
+def gen_bip39_mnemonic(original: str) -> str:
+    """Replace each word with a uniformly random BIP39 word. Same word count
+    as the original, so a 12-word phrase masks to a 12-word phrase and the
+    recognizer re-matches on a second pass. Both halves of the secret are
+    replaced — the word order *is* the seed, so partial preservation would
+    leak entropy."""
+    from claude_redact.bip39_wordlist import BIP39_WORDLIST
+    n = len(original.split())
+    return " ".join(_rng.choice(BIP39_WORDLIST) for _ in range(n))
+
+
 def gen_xrp_seed(original: str) -> str:
     """`s` (secp256k1) or `sEd` (Ed25519) + base58 of the same length, with
     at least one digit so the digit-required lookahead in the recognizer
@@ -392,6 +403,7 @@ _GENERATORS = {
     "DOGE_ADDRESS": gen_doge_address,
     "XRP_ADDRESS": gen_xrp_address,
     "XRP_SEED": gen_xrp_seed,
+    "BIP39_MNEMONIC": gen_bip39_mnemonic,
     "TRX_ADDRESS": gen_trx_address,
     "XMR_ADDRESS": gen_xmr_address,
     "ADA_ADDRESS": gen_ada_address,

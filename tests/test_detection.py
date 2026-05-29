@@ -107,6 +107,9 @@ def test_credit_card_no_trailing_space_eaten():
     # Length varies slightly (28-31) depending on the encoded leading bytes.
     ("snoPBrXtMeMyMHUVTgbuqAfg1SUTb", "XRP_SEED"),
     ("sEdSKaCy2JT7JaM7v95H9SxkhP9wS2r", "XRP_SEED"),
+    # BIP39 12-word mnemonic — every word must be in the canonical English list.
+    # (`legal winner thank …` is a published BIP39 test vector.)
+    ("legal winner thank year wave sausage worth useful legal winner thank yellow", "BIP39_MNEMONIC"),
     ("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa", "BTC_ADDRESS"),
     ("bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq", "BTC_ADDRESS"),
 ])
@@ -122,6 +125,23 @@ def test_pem_private_key_block():
         "-----END RSA PRIVATE KEY-----"
     )
     assert "CRYPTO_PRIVATE_KEY" in _types(f"key:\n{pem}\n")
+
+
+def test_bip39_rejects_non_dictionary_words():
+    """A 12-word phrase whose words aren't in the BIP39 list must not match.
+    Otherwise any 12-short-word run of prose gets redacted."""
+    not_bip39 = "hello world this sentence has twelve regular english words right now okay"
+    assert "BIP39_MNEMONIC" not in _types(not_bip39)
+
+
+def test_bip39_accepts_24_word_phrase():
+    """24-word mnemonics are also valid — same validator, just longer."""
+    twenty_four = (
+        "abandon ability able about above absent absorb abstract absurd abuse "
+        "access accident account accuse achieve acid acoustic acquire across act "
+        "action actor actress actual"
+    )
+    assert "BIP39_MNEMONIC" in _types(twenty_four)
 
 
 def test_xrp_seed_rejects_plain_word_starting_with_s():

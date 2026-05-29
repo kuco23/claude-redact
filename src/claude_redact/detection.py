@@ -60,6 +60,14 @@ def _valid_ipv6(s: str) -> bool:
         return False
 
 
+def _valid_bip39_phrase(s: str) -> bool:
+    """Every space-separated token must appear in the canonical BIP39 English
+    wordlist. Without this gate the recognizer would match any 12 or 24
+    consecutive short lowercase words — most English prose redacted away."""
+    from claude_redact.bip39_wordlist import BIP39_WORDS
+    return all(w in BIP39_WORDS for w in s.split())
+
+
 # --- Patterns ------------------------------------------------------------
 
 Validator = Callable[[str], bool]
@@ -155,6 +163,17 @@ PATTERNS: list[tuple[str, str, Validator | None]] = [
     ("XRP_SEED",
      r"\bs(?:Ed)?(?=[1-9A-HJ-NP-Za-km-z]*[0-9])[1-9A-HJ-NP-Za-km-z]{25,30}\b",
      None),
+
+    # BIP39 mnemonic: 12 or 24 lowercase words from the canonical English
+    # wordlist, separated by single spaces. Each word is 3-8 chars. The
+    # validator is the gate — the regex alone would match any 12/24
+    # consecutive short lowercase words.
+    ("BIP39_MNEMONIC",
+     r"\b(?:[a-z]{3,8} ){11}[a-z]{3,8}\b",
+     _valid_bip39_phrase),
+    ("BIP39_MNEMONIC",
+     r"\b(?:[a-z]{3,8} ){23}[a-z]{3,8}\b",
+     _valid_bip39_phrase),
 
     # Tron (TRX): starts with T, 34 chars total.
     ("TRX_ADDRESS", r"\bT[1-9A-HJ-NP-Za-km-z]{33}\b", None),

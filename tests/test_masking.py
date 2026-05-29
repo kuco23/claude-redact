@@ -160,6 +160,19 @@ def test_xrp_seed_fake_preserves_prefix_and_alphabet():
         assert fake != orig
 
 
+def test_bip39_fake_is_valid_bip39_phrase_of_same_length():
+    """The fake must be a phrase of the same word count drawn from the
+    BIP39 list, so the recognizer re-matches on a second pass and the
+    model sees something structurally identical to the original."""
+    from claude_redact.bip39_wordlist import BIP39_WORDS
+    orig = "legal winner thank year wave sausage worth useful legal winner thank yellow"
+    fake = fake_for("BIP39_MNEMONIC", orig)
+    fake_words = fake.split()
+    assert len(fake_words) == 12
+    assert all(w in BIP39_WORDS for w in fake_words)
+    assert fake != orig
+
+
 def test_telegram_bot_token_fake_preserves_id_colon_body_shape():
     """A Telegram bot token (`{id}:{body}`) needs both halves redacted
     *and* the structural separator preserved so the fake still matches
