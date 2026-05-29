@@ -299,6 +299,10 @@ _API_KEY_SHAPES: list[tuple[re.Pattern[str], "callable"]] = [
     (re.compile(r"^(AKIA|ASIA)"),     lambda o: o[:4] + _rand(string.digits + string.ascii_uppercase, len(o) - 4)),
     (re.compile(r"^AIza"),            lambda o: "AIza" + _rand(_ALNUM + "_-", len(o) - 4)),
     (re.compile(r"^xox[baprs]-"),     lambda o: o[:5] + _rand(_ALNUM + "-", len(o) - 5)),
+    # Telegram bot token: random digits (same count) + ":" + random URL-safe body.
+    # Both halves are randomized — the bot ID is itself an identifier worth redacting.
+    (re.compile(r"^\d{8,12}:"),       lambda o: _rand(string.digits, o.index(":"))
+                                                 + ":" + _rand(_ALNUM + "_-", len(o) - o.index(":") - 1)),
     (re.compile(r"^AC[a-f0-9]{32}$"), lambda o: "AC" + _rand(_HEX, 32)),
     (re.compile(r"^SG\."),            lambda o: "SG." + _rand(_BASE64URL, 22) + "." + _rand(_BASE64URL, 43)),
     (re.compile(r"^key-[a-f0-9]"),    lambda o: "key-" + _rand(_HEX, len(o) - 4)),

@@ -142,6 +142,23 @@ def test_mask_catches_0x_prefixed_private_key_in_context():
     assert unmask(masked) == text
 
 
+def test_telegram_bot_token_fake_preserves_id_colon_body_shape():
+    """A Telegram bot token (`{id}:{body}`) needs both halves redacted
+    *and* the structural separator preserved so the fake still matches
+    the recognizer on a second pass (idempotence)."""
+    orig = "8560628413:AAGO77U8IZWl35f-ghqq82bRml5kCjhbLU8"
+    fake = fake_for("API_KEY", orig)
+    assert ":" in fake
+    head, _, tail = fake.partition(":")
+    assert head.isdigit() and len(head) == 10  # same digit count
+    assert len(tail) == 35
+    assert re.fullmatch(r"[A-Za-z0-9_\-]+", tail)
+    assert fake != orig
+    # Neither half leaks the original.
+    assert head != "8560628413"
+    assert tail != "AAGO77U8IZWl35f-ghqq82bRml5kCjhbLU8"
+
+
 def test_api_key_fake_keeps_provider_prefix():
     """The generator sniffs the provider prefix so the fake re-matches the
     same recognizer (and Claude still gets a hint that it's an Anthropic key,

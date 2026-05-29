@@ -101,6 +101,8 @@ def test_credit_card_no_trailing_space_eaten():
     # The 0x + 40 case is owned by ETH_ADDRESS; 0x + 64 by ETH_PRIVATE_KEY.
     ("0x9e107d9d372bb6826bd81d3542a419d6", "HASH"),
     ("0x" + "abcdef0123456789" * 8, "HASH"),
+    # Telegram bot token: 8-12 digits, colon, 35-char URL-safe base64 body.
+    ("8560628413:AAGO77U8IZWl35f-ghqq82bRml5kCjhbLU8", "API_KEY"),
     ("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa", "BTC_ADDRESS"),
     ("bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq", "BTC_ADDRESS"),
 ])
@@ -171,6 +173,18 @@ def test_entropy_catches_base64_secret():
     secret = "aB3kLmN9pQrStUvWxYz0123456789AbCdEfGhIjKlMnOp"
     matches = find_high_entropy(f"token {secret}")
     assert any(m.entity_type == "BASE64_SECRET" for m in matches)
+
+
+def test_entropy_catches_url_safe_base64_with_dash_or_underscore():
+    """URL-safe base64 swaps `+/` for `-_`. Real tokens (JWT segments,
+    Telegram bot bodies, many provider keys) use this variant — the
+    standard-alphabet entropy regex used to miss them entirely because
+    the first `-` or `_` would terminate the candidate run."""
+    secret = "AAGO77U8IZWl35f-ghqq82bRml5kCjhbLU8"  # 35-char URL-safe body
+    matches = find_high_entropy(f"token {secret}")
+    assert any(m.entity_type == "BASE64_SECRET" for m in matches), (
+        f"URL-safe token {secret!r} not caught by entropy pass"
+    )
 
 
 def test_entropy_rejects_english_prose():

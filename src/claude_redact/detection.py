@@ -170,6 +170,10 @@ PATTERNS: list[tuple[str, str, Validator | None]] = [
     ("API_KEY", r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b", None),            # AWS access key id
     ("API_KEY", r"\bAIza[0-9A-Za-z_\-]{35}\b", None),               # Google API key
     ("API_KEY", r"\bxox[baprs]-[A-Za-z0-9\-]{10,}\b", None),        # Slack token
+    # Telegram bot token: 8-12 digit bot ID, colon, 35-char URL-safe base64
+    # auth token. The colon would otherwise split it into two runs that
+    # neither the API_KEY recognizers nor the entropy scanner catch.
+    ("API_KEY", r"\b\d{8,12}:[A-Za-z0-9_\-]{35}\b", None),           # Telegram bot
 
     # Patterns adapted from gitleaks (github.com/gitleaks/gitleaks) — covering
     # the SaaS providers most likely to show up in dev traffic.
@@ -234,7 +238,7 @@ ENTROPY_MIN_LEN = 20
 BASE64_ENTROPY_LIMIT = 4.5
 HEX_ENTROPY_LIMIT = 3.0
 
-_BASE64_RE = re.compile(rf"[A-Za-z0-9+/]{{{ENTROPY_MIN_LEN},}}={{0,2}}")
+_BASE64_RE = re.compile(rf"[A-Za-z0-9+/_\-]{{{ENTROPY_MIN_LEN},}}={{0,2}}")
 _HEX_RE = re.compile(rf"\b[a-fA-F0-9]{{{ENTROPY_MIN_LEN},}}\b")
 
 
