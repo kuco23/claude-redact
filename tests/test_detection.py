@@ -96,6 +96,7 @@ def test_credit_card_no_trailing_space_eaten():
     ("github_pat_" + "A" * 82, "API_KEY"),
     ("AKIAIOSFODNN7EXAMPLE", "API_KEY"),
     ("0xAbCdEf1234567890abcdef1234567890ABCDEF12", "ETH_ADDRESS"),
+    ("0x6fbbd4885827f6174c2b20176bca48099e23d6adbea7c05e6b9bf133041ef537", "ETH_PRIVATE_KEY"),
     ("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa", "BTC_ADDRESS"),
     ("bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq", "BTC_ADDRESS"),
 ])

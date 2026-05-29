@@ -224,6 +224,12 @@ def gen_eth_address(original: str) -> str:
     return "0x" + _rand(_HEX, 40)
 
 
+def gen_eth_private_key(original: str) -> str:
+    """`0x` + 64 hex (lowercase). Same shape as a raw secp256k1 private key
+    or a 32-byte hash written in 0x form."""
+    return "0x" + _rand(_HEX, 64)
+
+
 def gen_btc_address(original: str) -> str:
     if original.startswith("bc1"):
         return "bc1" + _rand(_BECH32_CHARS, len(original) - 3)
@@ -359,6 +365,7 @@ _GENERATORS = {
     "CRYPTO_PRIVATE_KEY": gen_pem_private_key,
     "HASH": gen_hex,
     "ETH_ADDRESS": gen_eth_address,
+    "ETH_PRIVATE_KEY": gen_eth_private_key,
     "BTC_ADDRESS": gen_btc_address,
     "BCH_ADDRESS": gen_bch_address,
     "LTC_ADDRESS": gen_ltc_address,

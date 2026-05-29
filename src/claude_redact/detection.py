@@ -110,6 +110,14 @@ PATTERNS: list[tuple[str, str, Validator | None]] = [
     # Ethereum (and EVM-compatible chains): 0x + 40 hex.
     ("ETH_ADDRESS", r"\b0x[a-fA-F0-9]{40}\b", None),
 
+    # EVM (secp256k1) private key: 0x + 64 hex. Distinct entity from HASH
+    # because the HASH regex anchors on `\b` and a `0x` prefix has no word
+    # boundary between the `x` and the hex body — so a bare 64-hex digest
+    # gets caught, but a 0x-prefixed key (the canonical wallet format) does
+    # not. Also covers 32-byte transaction hashes / SHA-256 digests written
+    # in 0x form.
+    ("ETH_PRIVATE_KEY", r"\b0x[a-fA-F0-9]{64}\b", None),
+
     # Bitcoin: legacy P2PKH (1...) / P2SH (3...) and bech32 SegWit (bc1...).
     # Base58 alphabet excludes 0, O, I, l. Length 26-35 incl. prefix.
     ("BTC_ADDRESS", r"\b[13][1-9A-HJ-NP-Za-km-z]{25,34}\b", None),

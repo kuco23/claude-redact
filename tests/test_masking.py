@@ -90,6 +90,31 @@ def test_eth_fake_keeps_0x_prefix():
     assert re.fullmatch(r"0x[0-9a-fA-F]{40}", fake)
 
 
+def test_eth_private_key_fake_is_0x_plus_64_hex():
+    """Regression: 0x + 64 hex (canonical secp256k1 / EVM private key) is its
+    own entity. Neither ETH_ADDRESS (only 40 hex) nor HASH (`\\b`-anchored,
+    can't latch past the `0x` prefix since `x` is a word char) caught it
+    before, so every EVM private key in a JSON blob passed through
+    unmasked."""
+    orig = "0x6fbbd4885827f6174c2b20176bca48099e23d6adbea7c05e6b9bf133041ef537"
+    fake = fake_for("ETH_PRIVATE_KEY", orig)
+    assert fake.startswith("0x")
+    assert re.fullmatch(r"0x[0-9a-fA-F]{64}", fake)
+    assert fake != orig
+
+
+def test_mask_catches_0x_prefixed_private_key_in_context():
+    """End-to-end: a private key embedded in JSON-like text must be redacted
+    and the round trip must restore the original."""
+    text = (
+        '"private_key": '
+        '"0x6fbbd4885827f6174c2b20176bca48099e23d6adbea7c05e6b9bf133041ef537"'
+    )
+    masked = mask(text)
+    assert "0x6fbbd4885827f6174c2b20176bca48099e23d6adbea7c05e6b9bf133041ef537" not in masked
+    assert unmask(masked) == text
+
+
 def test_api_key_fake_keeps_provider_prefix():
     """The generator sniffs the provider prefix so the fake re-matches the
     same recognizer (and Claude still gets a hint that it's an Anthropic key,
