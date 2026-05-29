@@ -142,6 +142,24 @@ def test_mask_catches_0x_prefixed_private_key_in_context():
     assert unmask(masked) == text
 
 
+def test_xrp_seed_fake_preserves_prefix_and_alphabet():
+    """secp256k1 seeds start with `s`, Ed25519 with `sEd`. The fake must
+    keep the prefix (so the recognizer still matches on a second pass)
+    and use only base58 chars (excludes 0, O, I, l)."""
+    for orig in [
+        "snoPBrXtMeMyMHUVTgbuqAfg1SUTb",       # secp256k1
+        "sEdSKaCy2JT7JaM7v95H9SxkhP9wS2r",     # Ed25519
+    ]:
+        fake = fake_for("XRP_SEED", orig)
+        assert len(fake) == len(orig)
+        if orig.startswith("sEd"):
+            assert fake.startswith("sEd")
+        else:
+            assert fake.startswith("s")
+        assert not any(c in fake for c in "0OIl"), f"base58 violation in {fake!r}"
+        assert fake != orig
+
+
 def test_telegram_bot_token_fake_preserves_id_colon_body_shape():
     """A Telegram bot token (`{id}:{body}`) needs both halves redacted
     *and* the structural separator preserved so the fake still matches

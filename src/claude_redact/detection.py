@@ -148,6 +148,14 @@ PATTERNS: list[tuple[str, str, Validator | None]] = [
      r"\b(?-i:r)(?=[1-9A-HJ-NP-Za-km-z]*[0-9])[1-9A-HJ-NP-Za-km-z]{24,34}\b",
      None),
 
+    # XRP family seed (the canonical wallet secret): base58, 28-31 chars,
+    # `s` prefix for secp256k1 or `sEd` for Ed25519. Same digit-required
+    # lookahead as XRP_ADDRESS so plain `s…` identifiers (`submitRequest`,
+    # etc.) don't get caught.
+    ("XRP_SEED",
+     r"\bs(?:Ed)?(?=[1-9A-HJ-NP-Za-km-z]*[0-9])[1-9A-HJ-NP-Za-km-z]{25,30}\b",
+     None),
+
     # Tron (TRX): starts with T, 34 chars total.
     ("TRX_ADDRESS", r"\bT[1-9A-HJ-NP-Za-km-z]{33}\b", None),
 

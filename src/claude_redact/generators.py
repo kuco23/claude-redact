@@ -267,6 +267,18 @@ def gen_xrp_address(original: str) -> str:
     return "r" + "".join(body)
 
 
+def gen_xrp_seed(original: str) -> str:
+    """`s` (secp256k1) or `sEd` (Ed25519) + base58 of the same length, with
+    at least one digit so the digit-required lookahead in the recognizer
+    still matches on a second pass."""
+    prefix = "sEd" if original.startswith("sEd") else "s"
+    body_len = len(original) - len(prefix)
+    body = list(_rand(_BASE58, body_len))
+    if not any(c.isdigit() for c in body):
+        body[_rng.randint(0, len(body) - 1)] = _rng.choice("123456789")
+    return prefix + "".join(body)
+
+
 def gen_trx_address(original: str) -> str:
     return "T" + _rand(_BASE58, len(original) - 1)
 
@@ -379,6 +391,7 @@ _GENERATORS = {
     "LTC_ADDRESS": gen_ltc_address,
     "DOGE_ADDRESS": gen_doge_address,
     "XRP_ADDRESS": gen_xrp_address,
+    "XRP_SEED": gen_xrp_seed,
     "TRX_ADDRESS": gen_trx_address,
     "XMR_ADDRESS": gen_xmr_address,
     "ADA_ADDRESS": gen_ada_address,

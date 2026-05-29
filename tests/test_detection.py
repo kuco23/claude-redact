@@ -103,6 +103,10 @@ def test_credit_card_no_trailing_space_eaten():
     ("0x" + "abcdef0123456789" * 8, "HASH"),
     # Telegram bot token: 8-12 digits, colon, 35-char URL-safe base64 body.
     ("8560628413:AAGO77U8IZWl35f-ghqq82bRml5kCjhbLU8", "API_KEY"),
+    # XRP family seed: secp256k1 (`s` + base58) and Ed25519 (`sEd` + base58).
+    # Length varies slightly (28-31) depending on the encoded leading bytes.
+    ("snoPBrXtMeMyMHUVTgbuqAfg1SUTb", "XRP_SEED"),
+    ("sEdSKaCy2JT7JaM7v95H9SxkhP9wS2r", "XRP_SEED"),
     ("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa", "BTC_ADDRESS"),
     ("bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq", "BTC_ADDRESS"),
 ])
@@ -118,6 +122,13 @@ def test_pem_private_key_block():
         "-----END RSA PRIVATE KEY-----"
     )
     assert "CRYPTO_PRIVATE_KEY" in _types(f"key:\n{pem}\n")
+
+
+def test_xrp_seed_rejects_plain_word_starting_with_s():
+    """An ordinary 28-30 char identifier starting with `s` (no digits) must
+    not match — the digit-required lookahead is what distinguishes a real
+    base58-encoded family seed from camelCase identifiers."""
+    assert "XRP_SEED" not in _types("submitTransactionWithRetryHelper data")
 
 
 def test_xrp_rejects_camelcase_identifier():
